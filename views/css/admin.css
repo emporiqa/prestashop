@@ -1,0 +1,333 @@
+/**
+ * Emporiqa Admin Styles
+ *
+ * @author    Emporiqa
+ * @copyright Emporiqa
+ * @license   AFL-3.0
+ */
+
+/* Header */
+.emporiqa-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.emporiqa-header-logo {
+    height: 40px;
+    width: auto;
+}
+
+.emporiqa-header-dashboard-btn {
+    white-space: nowrap;
+}
+
+/* Tab navigation */
+.emporiqa-tabs {
+    margin-bottom: 20px;
+}
+
+.emporiqa-tabs .emporiqa-nav-tab {
+    display: inline-block;
+    padding: 10px 20px;
+    margin-right: 2px;
+    background: #f1f1f1;
+    border: 1px solid #ccc;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    text-decoration: none;
+    color: #333;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.emporiqa-tabs .emporiqa-nav-tab.active {
+    background: #fff;
+    border-bottom: 1px solid #fff;
+    margin-bottom: -1px;
+    position: relative;
+    z-index: 1;
+}
+
+.emporiqa-tabs .emporiqa-nav-tab:hover {
+    background: #e8e8e8;
+}
+
+.emporiqa-tabs .emporiqa-nav-tab.active:hover {
+    background: #fff;
+}
+
+/* Tab content visibility */
+.emporiqa-tab-content {
+    display: none;
+    padding-top: 15px;
+}
+
+.emporiqa-tab-content.active {
+    display: block;
+}
+
+/* Info banner */
+.emporiqa-info-banner {
+    margin: 0 0 16px;
+    border-left: 4px solid #25b9d7;
+}
+
+.emporiqa-info-banner p {
+    margin: 0;
+}
+
+/* Collapsible sections */
+.emporiqa-collapsible-section {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin: 12px 0;
+    background: #fff;
+}
+
+.emporiqa-section-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 14px;
+    user-select: none;
+}
+
+.emporiqa-section-header:hover {
+    background: #f8f9fa;
+}
+
+.emporiqa-section-header:focus {
+    outline: 2px solid #25b9d7;
+    outline-offset: -2px;
+}
+
+.emporiqa-section-toggle {
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #666;
+    transition: transform 0.2s ease;
+}
+
+.emporiqa-section-closed .emporiqa-section-toggle {
+    transform: rotate(-90deg);
+}
+
+.emporiqa-section-body {
+    padding: 0 16px 16px;
+}
+
+.emporiqa-section-closed .emporiqa-section-body {
+    display: none;
+}
+
+/* Required field asterisk (scoped to our wrapper) */
+.emporiqa-wrap .control-label.required::after {
+    content: ' *';
+    color: #e74c3c;
+}
+
+/* Field warning */
+.emporiqa-field-warning {
+    color: #e74c3c;
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.emporiqa-field-warning a {
+    color: #e74c3c;
+    text-decoration: underline;
+}
+
+/* Sync overview */
+.emporiqa-sync-disabled-note {
+    color: #999;
+}
+
+/* Sync descriptions */
+.emporiqa-sync-descriptions {
+    margin: 16px 0 12px;
+}
+
+.emporiqa-sync-descriptions p {
+    margin: 4px 0;
+}
+
+/* Sync actions row */
+.emporiqa-sync-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 16px;
+}
+
+.emporiqa-sync-actions .btn {
+    min-width: 120px;
+}
+
+/* Progress bar */
+.emporiqa-progress-wrapper {
+    display: none;
+    margin: 16px 0;
+}
+
+.emporiqa-progress-wrapper.visible {
+    display: block;
+}
+
+.emporiqa-progress-bar {
+    width: 100%;
+    height: 28px;
+    background: #f0f0f1;
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.emporiqa-progress-bar-fill {
+    height: 100%;
+    background: #25b9d7;
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    min-width: 0;
+}
+
+.emporiqa-progress-text {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    color: #1d2327;
+}
+
+/* Sync log area */
+.emporiqa-sync-log {
+    display: none;
+    max-height: 300px;
+    overflow-y: auto;
+    background: #f6f7f7;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 16px 0;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.emporiqa-sync-log.visible {
+    display: block;
+}
+
+.emporiqa-sync-log .log-entry {
+    margin: 0;
+    padding: 2px 0;
+}
+
+.emporiqa-sync-log .log-info {
+    color: #25b9d7;
+}
+
+.emporiqa-sync-log .log-success {
+    color: #70b580;
+}
+
+.emporiqa-sync-log .log-warning {
+    color: #dd9933;
+}
+
+.emporiqa-sync-log .log-error {
+    color: #e74c3c;
+}
+
+/* Test connection */
+.emporiqa-test-row {
+    margin: 16px 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+#emporiqa-test-result {
+    font-weight: 600;
+}
+
+/* Copy row (read-only URL + copy button) */
+.emporiqa-copy-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.emporiqa-copy-row .emporiqa-url-field {
+    font-family: monospace;
+    background: #f6f7f7;
+    flex: 1;
+}
+
+.emporiqa-copy-btn {
+    white-space: nowrap;
+}
+
+/* Payload preview */
+.emporiqa-payload-toggle {
+    cursor: pointer;
+    color: #25b9d7;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 12px 0 4px;
+    user-select: none;
+}
+
+.emporiqa-payload-toggle:hover {
+    text-decoration: underline;
+}
+
+.emporiqa-payload-toggle:focus {
+    outline: 2px solid #25b9d7;
+    outline-offset: 2px;
+}
+
+.emporiqa-payload-toggle .emporiqa-payload-arrow {
+    display: inline-block;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #25b9d7;
+    transition: transform 0.2s ease;
+}
+
+.emporiqa-payload-toggle.collapsed .emporiqa-payload-arrow {
+    transform: rotate(-90deg);
+}
+
+.emporiqa-payload-pre {
+    max-height: 300px;
+    overflow: auto;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    background: #f6f7f7;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 12px;
+    margin: 0 0 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
