@@ -171,7 +171,9 @@ class EmporiqaSyncService
 
     private function processProductBatch($sessionId, $page, $dryRun = false)
     {
-        @set_time_limit(300);
+        if (function_exists('set_time_limit')) {
+            set_time_limit(300);
+        }
         EmporiqaProductFormatter::clearBatchCaches();
         $offset = ($page - 1) * $this->batchSize;
 
@@ -215,7 +217,7 @@ class EmporiqaSyncService
         $success = true;
         if (!$dryRun && !empty($events)) {
             foreach (array_chunk($events, EmporiqaWebhookClient::FLUSH_BATCH_SIZE) as $chunk) {
-                if (!$this->webhookClient->sendBatchEvents($chunk)) {
+                if (!$this->webhookClient->sendBatchEvents($chunk, 30)) {
                     $success = false;
                 }
             }
@@ -230,7 +232,9 @@ class EmporiqaSyncService
 
     private function processPageBatch($sessionId, $page, $dryRun = false)
     {
-        @set_time_limit(300);
+        if (function_exists('set_time_limit')) {
+            set_time_limit(300);
+        }
         $offset = ($page - 1) * $this->batchSize;
 
         $sql = new DbQuery();
@@ -272,7 +276,7 @@ class EmporiqaSyncService
         $success = true;
         if (!$dryRun && !empty($events)) {
             foreach (array_chunk($events, EmporiqaWebhookClient::FLUSH_BATCH_SIZE) as $chunk) {
-                if (!$this->webhookClient->sendBatchEvents($chunk)) {
+                if (!$this->webhookClient->sendBatchEvents($chunk, 30)) {
                     $success = false;
                 }
             }

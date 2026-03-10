@@ -37,6 +37,7 @@ class EmporiqaWebhookClient
     /**
      * Flush all pending events by sending them in batches.
      * Called automatically via register_shutdown_function().
+     * Stops on first failure to avoid hanging when the API is down.
      */
     public function flushPendingEvents()
     {
@@ -48,7 +49,13 @@ class EmporiqaWebhookClient
         $this->pendingEvents = [];
 
         foreach (array_chunk($events, self::FLUSH_BATCH_SIZE) as $batch) {
-            $this->sendBatchEvents($batch);
+            if (!$this->sendBatchEvents($batch)) {
+                $remaining = count($events) - count($batch);
+                if ($remaining > 0) {
+                    $this->log('Stopping flush: API unreachable. ' . $remaining . ' events dropped.');
+                }
+                break;
+            }
         }
     }
 
@@ -56,17 +63,18 @@ class EmporiqaWebhookClient
      * Send a batch of events immediately.
      *
      * @param array $events Array of event objects
+     * @param int $timeout Request timeout in seconds (default 10 for deferred, use 30 for sync)
      *
      * @return bool
      */
-    public function sendBatchEvents(array $events)
+    public function sendBatchEvents(array $events, $timeout = 10)
     {
         if (empty($events)) {
             return true;
         }
 
         $payload = ['events' => $events];
-        $result = $this->doRequest($payload);
+        $result = $this->doRequest($payload, false, $timeout);
 
         if (!$result['success']) {
             $this->log('Webhook error: ' . ($result['error'] ?? 'Unknown'));
@@ -243,10 +251,11 @@ class EmporiqaWebhookClient
      *
      * @param array $payload Request payload
      * @param bool $dryRun Append ?dry_run=true to validate without storing
+     * @param int $timeout Total request timeout in seconds
      *
      * @return array{success: bool, error: ?string, response: ?array}
      */
-    private function doRequest(array $payload, $dryRun = false)
+    private function doRequest(array $payload, $dryRun = false, $timeout = 30)
     {
         $url = $this->getWebhookUrl();
         if ($dryRun && $url) {
@@ -293,8 +302,8 @@ class EmporiqaWebhookClient
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $jsonPayload,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => $timeout,
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
                 'X-Webhook-Signature: ' . $signature,
