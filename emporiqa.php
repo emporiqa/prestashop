@@ -523,6 +523,10 @@ class Emporiqa extends Module
             return;
         }
 
+        if (!$product->isAssociatedToShop()) {
+            return;
+        }
+
         $eventType = 'product.updated';
 
         $shouldSync = true;
@@ -566,6 +570,10 @@ class Emporiqa extends Module
             return;
         }
 
+        if (!$product->isAssociatedToShop()) {
+            return;
+        }
+
         $this->queueProductEvent($product, 'product.updated');
     }
 
@@ -597,7 +605,7 @@ class Emporiqa extends Module
 
         $productId = (int) $object->id_product;
         $product = new Product($productId);
-        if (Validate::isLoadedObject($product) && $product->active) {
+        if (Validate::isLoadedObject($product) && $product->active && $product->isAssociatedToShop()) {
             if (!isset($this->queuedProductIds[$productId])) {
                 $this->queuedProductIds[$productId] = true;
                 $this->queueProductEvent($product, 'product.updated');
@@ -628,7 +636,7 @@ class Emporiqa extends Module
         // Re-sync the parent product
         $productId = (int) $object->id_product;
         $product = new Product($productId);
-        if (Validate::isLoadedObject($product) && $product->active) {
+        if (Validate::isLoadedObject($product) && $product->active && $product->isAssociatedToShop()) {
             if (!isset($this->queuedProductIds[$productId])) {
                 $this->queuedProductIds[$productId] = true;
                 $this->queueProductEvent($product, 'product.updated');
@@ -688,6 +696,10 @@ class Emporiqa extends Module
 
         if (!$cms->active) {
             $this->queuePageDelete($cmsId);
+            return;
+        }
+
+        if (!$cms->isAssociatedToShop()) {
             return;
         }
 
