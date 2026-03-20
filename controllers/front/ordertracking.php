@@ -19,44 +19,46 @@ class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
 
     public $ssl = true;
 
-    public function initContent()
+    public function postProcess()
     {
-        if (!Configuration::get('EMPORIQA_ORDER_TRACKING')) {
-            $this->sendError('Order tracking is disabled.', 403);
-        }
+        $this->ajax = true;
 
-        if ($this->getRequestMethod() !== 'POST') {
-            $this->sendError('Method not allowed.', 405);
+        if (!Configuration::get('EMPORIQA_ORDER_TRACKING')) {
+            $this->ajaxError('Order tracking is disabled.', 403);
         }
 
         $body = file_get_contents('php://input');
+        if (empty($body)) {
+            $this->ajaxError('Method not allowed.', 405);
+        }
+
         $signature = $this->getRequestHeader('X-Emporiqa-Signature');
 
         if (empty($signature)) {
-            $this->sendError('Missing signature.', 401);
+            $this->ajaxError('Missing signature.', 401);
         }
 
         $secret = Configuration::get('EMPORIQA_WEBHOOK_SECRET');
         if (empty($secret)) {
-            $this->sendError('Service unavailable.', 503);
+            $this->ajaxError('Service unavailable.', 503);
         }
 
         if (!EmporiqaSignatureHelper::verifySignature($body, $signature, $secret)) {
-            $this->sendError('Invalid signature.', 401);
+            $this->ajaxError('Invalid signature.', 401);
         }
 
         $payload = json_decode($body, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
-            $this->sendError('Invalid JSON in request body.', 400);
+            $this->ajaxError('Invalid JSON in request body.', 400);
         }
 
         $timestamp = isset($payload['timestamp']) ? (int) $payload['timestamp'] : 0;
         if (abs(time() - $timestamp) > self::TIMESTAMP_TOLERANCE) {
-            $this->sendError('Request expired.', 400);
+            $this->ajaxError('Request expired.', 400);
         }
 
         if (empty($payload['order_identifier'])) {
-            $this->sendError('Invalid payload: order_identifier is required.', 400);
+            $this->ajaxError('Invalid payload: order_identifier is required.', 400);
         }
 
         $orderIdentifier = (string) $payload['order_identifier'];
@@ -66,6 +68,15 @@ class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
         }
 
         $this->lookupOrder($orderIdentifier, $verificationFields);
+    }
+
+    public function initContent()
+    {
+        parent::initContent();
+
+        if (!$this->ajax) {
+            $this->ajaxError('Invalid request.', 400);
+        }
     }
 
     private function lookupOrder($orderIdentifier, array $verificationFields)
@@ -85,7 +96,7 @@ class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
         }
 
         if (!$order) {
-            $this->sendError('Order not found.', 404);
+            $this->ajaxError('Order not found.', 404);
         }
 
         /** @var Order $order */
@@ -93,19 +104,19 @@ class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
         $providedEmail = !empty($verificationFields['email']) ? $verificationFields['email'] : '';
 
         if ($requireEmail && empty($providedEmail)) {
-            $this->sendError('Email verification required.', 400);
+            $this->ajaxError('Email verification required.', 400);
         }
 
         if (!empty($providedEmail)) {
             if ((int) $order->id_customer === 0) {
-                $this->sendError('Order not found.', 404);
+                $this->ajaxError('Order not found.', 404);
             }
 
             $customer = new Customer((int) $order->id_customer);
             if (!Validate::isLoadedObject($customer)
                 || strtolower($customer->email) !== strtolower($providedEmail)
             ) {
-                $this->sendError('Order not found.', 404);
+                $this->ajaxError('Order not found.', 404);
             }
         }
 
@@ -117,14 +128,13 @@ class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
             'order' => $order,
         ]);
 
-        $this->sendSuccess($data);
+        $this->ajaxSuccess($data);
     }
 
-    private function getRequestMethod()
-    {
-        return isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : '';
-    }
-
+    /**
+     * Read an HTTP request header.
+     * Uses $_SERVER which is the standard PHP mechanism for HTTP headers.
+     */
     private function getRequestHeader($name)
     {
         $key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
@@ -132,7 +142,7 @@ class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
         return isset($_SERVER[$key]) ? $_SERVER[$key] : '';
     }
 
-    private function sendError($message, $statusCode = 400)
+    private function ajaxError($message, $statusCode = 400)
     {
         while (ob_get_level()) {
             ob_end_clean();
@@ -142,7 +152,7 @@ class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
         exit(json_encode(['error' => $message]));
     }
 
-    private function sendSuccess(array $data)
+    private function ajaxSuccess(array $data)
     {
         while (ob_get_level()) {
             ob_end_clean();

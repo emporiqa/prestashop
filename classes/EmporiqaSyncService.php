@@ -76,18 +76,17 @@ class EmporiqaSyncService
             $sessionId = 'ps-' . $ent . '-' . $this->generateUuid();
 
             if (!$dryRun) {
-                $result = $this->webhookClient->startSyncSession($sessionId, $ent, null);
+                $result = $this->webhookClient->startSyncSession($sessionId, $ent);
                 if (!$result) {
                     return [
                         'success' => false,
-                        'error' => "Failed to start {$ent} sync session.",
+                        'error' => sprintf('Failed to start %s sync session.', $ent),
                     ];
                 }
             }
 
             $sessions[] = [
                 'entity' => $ent,
-                'language' => null,
                 'session_id' => $sessionId,
             ];
         }
@@ -139,7 +138,7 @@ class EmporiqaSyncService
             return ['success' => true, 'message' => 'Dry-run session completed.'];
         }
 
-        $result = $this->webhookClient->completeSyncSession($sessionId, $entity, null);
+        $result = $this->webhookClient->completeSyncSession($sessionId, $entity);
 
         return [
             'success' => $result,
@@ -147,23 +146,29 @@ class EmporiqaSyncService
         ];
     }
 
+    /**
+     * Count distinct active products across all shops.
+     */
     public function countProducts()
     {
         $sql = new DbQuery();
-        $sql->select('COUNT(*)');
+        $sql->select('COUNT(DISTINCT p.id_product)');
         $sql->from('product', 'p');
-        $sql->innerJoin('product_shop', 'ps', 'p.id_product = ps.id_product AND ps.id_shop = ' . (int) Context::getContext()->shop->id);
+        $sql->innerJoin('product_shop', 'ps', 'p.id_product = ps.id_product');
         $sql->where('ps.active = 1');
 
         return (int) Db::getInstance()->getValue($sql);
     }
 
+    /**
+     * Count distinct active CMS pages across all shops.
+     */
     public function countPages()
     {
         $sql = new DbQuery();
-        $sql->select('COUNT(*)');
+        $sql->select('COUNT(DISTINCT c.id_cms)');
         $sql->from('cms', 'c');
-        $sql->innerJoin('cms_shop', 'cs', 'c.id_cms = cs.id_cms AND cs.id_shop = ' . (int) Context::getContext()->shop->id);
+        $sql->innerJoin('cms_shop', 'cs', 'c.id_cms = cs.id_cms');
         $sql->where('c.active = 1');
 
         return (int) Db::getInstance()->getValue($sql);
@@ -178,9 +183,9 @@ class EmporiqaSyncService
         $offset = ($page - 1) * $this->batchSize;
 
         $sql = new DbQuery();
-        $sql->select('p.id_product');
+        $sql->select('DISTINCT p.id_product');
         $sql->from('product', 'p');
-        $sql->innerJoin('product_shop', 'ps', 'p.id_product = ps.id_product AND ps.id_shop = ' . (int) Context::getContext()->shop->id);
+        $sql->innerJoin('product_shop', 'ps', 'p.id_product = ps.id_product');
         $sql->where('ps.active = 1');
         $sql->orderBy('p.id_product ASC');
         $sql->limit($this->batchSize, $offset);
@@ -219,6 +224,7 @@ class EmporiqaSyncService
             foreach (array_chunk($events, EmporiqaWebhookClient::FLUSH_BATCH_SIZE) as $chunk) {
                 if (!$this->webhookClient->sendBatchEvents($chunk, 30)) {
                     $success = false;
+                    break;
                 }
             }
         }
@@ -238,9 +244,9 @@ class EmporiqaSyncService
         $offset = ($page - 1) * $this->batchSize;
 
         $sql = new DbQuery();
-        $sql->select('c.id_cms');
+        $sql->select('DISTINCT c.id_cms');
         $sql->from('cms', 'c');
-        $sql->innerJoin('cms_shop', 'cs', 'c.id_cms = cs.id_cms AND cs.id_shop = ' . (int) Context::getContext()->shop->id);
+        $sql->innerJoin('cms_shop', 'cs', 'c.id_cms = cs.id_cms');
         $sql->where('c.active = 1');
         $sql->orderBy('c.id_cms ASC');
         $sql->limit($this->batchSize, $offset);
@@ -278,6 +284,7 @@ class EmporiqaSyncService
             foreach (array_chunk($events, EmporiqaWebhookClient::FLUSH_BATCH_SIZE) as $chunk) {
                 if (!$this->webhookClient->sendBatchEvents($chunk, 30)) {
                     $success = false;
+                    break;
                 }
             }
         }

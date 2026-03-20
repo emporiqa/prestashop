@@ -18,9 +18,9 @@ class EmporiqaCartHandler
     /** @var Context */
     private $context;
 
-    public function __construct()
+    public function __construct(Context $context)
     {
-        $this->context = Context::getContext();
+        $this->context = $context;
     }
 
     /**
@@ -43,6 +43,9 @@ class EmporiqaCartHandler
 
         if ($quantity < 1) {
             $quantity = 1;
+        }
+        if ($quantity > 9999) {
+            return $this->errorResponse('Quantity exceeds the allowed maximum.');
         }
 
         $product = new Product($productId);
@@ -108,6 +111,9 @@ class EmporiqaCartHandler
 
         if ($quantity < 1) {
             return $this->errorResponse('Quantity must be greater than zero.');
+        }
+        if ($quantity > 9999) {
+            return $this->errorResponse('Quantity exceeds the allowed maximum.');
         }
 
         $this->ensureCart();

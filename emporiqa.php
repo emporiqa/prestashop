@@ -14,6 +14,7 @@ if (!defined('_PS_VERSION_')) {
 
 require_once dirname(__FILE__) . '/classes/EmporiqaSignatureHelper.php';
 require_once dirname(__FILE__) . '/classes/EmporiqaLanguageHelper.php';
+require_once dirname(__FILE__) . '/classes/EmporiqaChannelResolver.php';
 require_once dirname(__FILE__) . '/classes/EmporiqaWebhookClient.php';
 require_once dirname(__FILE__) . '/classes/EmporiqaProductFormatter.php';
 require_once dirname(__FILE__) . '/classes/EmporiqaPageFormatter.php';
@@ -27,6 +28,9 @@ class Emporiqa extends Module
 
     /** @var EmporiqaWebhookClient|null */
     private $webhookClient;
+
+    /** @var EmporiqaChannelResolver|null */
+    private $channelResolver;
 
     /** @var EmporiqaProductFormatter|null */
     private $productFormatter;
@@ -49,11 +53,12 @@ class Emporiqa extends Module
     public function __construct()
     {
         $this->name = 'emporiqa';
+        $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
         $this->version = '1.0.0';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
-        $this->ps_versions_compliancy = ['min' => '8.0.0', 'max' => '8.99.99'];
+        $this->ps_versions_compliancy = ['min' => '8.0.0', 'max' => '9.99.99'];
         $this->bootstrap = true;
 
         parent::__construct();
@@ -69,10 +74,22 @@ class Emporiqa extends Module
     public function getWebhookClient()
     {
         if (!$this->webhookClient) {
-            $this->webhookClient = new EmporiqaWebhookClient();
+            $this->webhookClient = new EmporiqaWebhookClient($this->getChannelResolver());
         }
 
         return $this->webhookClient;
+    }
+
+    /**
+     * @return EmporiqaChannelResolver
+     */
+    public function getChannelResolver()
+    {
+        if (!$this->channelResolver) {
+            $this->channelResolver = new EmporiqaChannelResolver($this->context);
+        }
+
+        return $this->channelResolver;
     }
 
     /**
@@ -81,7 +98,7 @@ class Emporiqa extends Module
     public function getProductFormatter()
     {
         if (!$this->productFormatter) {
-            $this->productFormatter = new EmporiqaProductFormatter();
+            $this->productFormatter = new EmporiqaProductFormatter($this->getChannelResolver(), $this->context);
         }
 
         return $this->productFormatter;
@@ -93,7 +110,7 @@ class Emporiqa extends Module
     public function getPageFormatter()
     {
         if (!$this->pageFormatter) {
-            $this->pageFormatter = new EmporiqaPageFormatter();
+            $this->pageFormatter = new EmporiqaPageFormatter($this->getChannelResolver());
         }
 
         return $this->pageFormatter;
@@ -173,7 +190,6 @@ class Emporiqa extends Module
         Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING', 1);
         Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING_EMAIL', 1);
         Configuration::updateGlobalValue('EMPORIQA_CART_ENABLED', 1);
-        Configuration::updateGlobalValue('EMPORIQA_WIDGET_CHANNEL', '');
         Configuration::updateGlobalValue('EMPORIQA_BATCH_SIZE', 25);
 
         return true;
@@ -185,7 +201,7 @@ class Emporiqa extends Module
             'EMPORIQA_STORE_ID', 'EMPORIQA_WEBHOOK_URL', 'EMPORIQA_WEBHOOK_SECRET',
             'EMPORIQA_SYNC_PRODUCTS', 'EMPORIQA_SYNC_PAGES', 'EMPORIQA_ENABLED_LANGUAGES',
             'EMPORIQA_ORDER_TRACKING', 'EMPORIQA_ORDER_TRACKING_EMAIL', 'EMPORIQA_CART_ENABLED',
-            'EMPORIQA_WIDGET_CHANNEL', 'EMPORIQA_BATCH_SIZE',
+            'EMPORIQA_BATCH_SIZE',
         ];
         if (Shop::isFeatureActive() && Shop::getContext() !== Shop::CONTEXT_ALL) {
             foreach ($keys as $key) {
@@ -343,8 +359,8 @@ class Emporiqa extends Module
             'emporiqa_sync_pages' => Configuration::get('EMPORIQA_SYNC_PAGES'),
             'emporiqa_enabled_languages' => $enabledLanguages,
             'emporiqa_languages' => $languages,
-            'emporiqa_token' => Tools::getAdminTokenLite('AdminModules'),
-            'emporiqa_sync_ajax_url' => $this->context->link->getAdminLink('AdminModules', true) . '&configure=emporiqa',
+            'emporiqa_token' => Tools::hash($this->name . (int) $this->context->employee->id),
+            'emporiqa_sync_ajax_url' => $this->getConfigureUrl(),
             'emporiqa_product_count' => $this->getSyncService()->countProducts(),
             'emporiqa_page_count' => $this->getSyncService()->countPages(),
             'emporiqa_platform_base_url' => $this->getPlatformBaseUrl(),
@@ -372,7 +388,8 @@ class Emporiqa extends Module
         }
 
         $token = Tools::getValue('emporiqa_token', '');
-        if (empty($token) || $token !== Tools::getAdminTokenLite('AdminModules')) {
+        $expectedToken = Tools::hash($this->name . (int) $this->context->employee->id);
+        if (empty($token) || $token !== $expectedToken) {
             $this->sendJsonAndExit(['success' => false, 'error' => 'Invalid security token.']);
         }
 
@@ -449,7 +466,7 @@ class Emporiqa extends Module
             'currency' => $this->context->currency->iso_code,
         ];
 
-        $queryParams['channel'] = (string) Configuration::get('EMPORIQA_WIDGET_CHANNEL');
+        $queryParams['channel'] = $this->getChannelResolver()->getCurrentChannelKey();
 
         if ($this->context->customer && $this->context->customer->isLogged()) {
             $webhookSecret = Configuration::get('EMPORIQA_WEBHOOK_SECRET');
@@ -528,7 +545,7 @@ class Emporiqa extends Module
         $shouldSync = true;
         $this->dispatchSyncHook('actionEmporiqaShouldSyncProduct', [
             'product' => $product,
-            'event_type' => &$eventType,
+            'event_type' => $eventType,
         ], $shouldSync);
         if (!$shouldSync) {
             return;
@@ -694,7 +711,7 @@ class Emporiqa extends Module
         $shouldSync = true;
         $this->dispatchSyncHook('actionEmporiqaShouldSyncPage', [
             'page' => $cms,
-            'event_type' => &$eventType,
+            'event_type' => $eventType,
         ], $shouldSync);
         if (!$shouldSync) {
             return;
@@ -748,7 +765,7 @@ class Emporiqa extends Module
         } catch (\Exception $e) {
             PrestaShopLogger::addLog(
                 '[Emporiqa] Order webhook failed for #' . $order->id . ': ' . $e->getMessage(),
-                2,
+                3,
                 null,
                 'Emporiqa'
             );
@@ -792,13 +809,13 @@ class Emporiqa extends Module
             $this->sendOrderCompletedWebhook($orderId);
 
             Db::getInstance()->insert('emporiqa_order_tracked', [
-                'id_order' => $orderId,
+                'id_order' => (int) $orderId,
                 'date_add' => date('Y-m-d H:i:s'),
             ], false, true, Db::ON_DUPLICATE_KEY);
         } catch (\Exception $e) {
             PrestaShopLogger::addLog(
                 '[Emporiqa] Order status webhook failed for #' . $orderId . ': ' . $e->getMessage(),
-                2,
+                3,
                 null,
                 'Emporiqa'
             );
@@ -860,7 +877,7 @@ class Emporiqa extends Module
             }
             $this->ensureShutdownFlush();
         } catch (\Exception $e) {
-            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 3);
+            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
         }
     }
 
@@ -917,6 +934,18 @@ class Emporiqa extends Module
         $this->ensureShutdownFlush();
     }
 
+    private function getConfigureUrl()
+    {
+        if (isset($_SERVER['REQUEST_URI'])) {
+            $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
+            $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
+
+            return $scheme . '://' . $host . $_SERVER['REQUEST_URI'];
+        }
+
+        return $this->context->link->getAdminLink('AdminModules', true) . '&configure=emporiqa';
+    }
+
     private function getPlatformBaseUrl()
     {
         $webhookUrl = Configuration::get('EMPORIQA_WEBHOOK_URL') ?: self::DEFAULT_WEBHOOK_URL;
@@ -933,7 +962,7 @@ class Emporiqa extends Module
             $sql = new DbQuery();
             $sql->select('p.id_product');
             $sql->from('product', 'p');
-            $sql->innerJoin('product_shop', 'ps', 'p.id_product = ps.id_product AND ps.id_shop = ' . (int) Context::getContext()->shop->id);
+            $sql->innerJoin('product_shop', 'ps', 'p.id_product = ps.id_product AND ps.id_shop = ' . (int) $this->context->shop->id);
             $sql->where('ps.active = 1');
             $sql->orderBy('p.id_product ASC');
             $sql->limit(1);
@@ -962,7 +991,7 @@ class Emporiqa extends Module
             $sql = new DbQuery();
             $sql->select('c.id_cms');
             $sql->from('cms', 'c');
-            $sql->innerJoin('cms_shop', 'cs', 'c.id_cms = cs.id_cms AND cs.id_shop = ' . (int) Context::getContext()->shop->id);
+            $sql->innerJoin('cms_shop', 'cs', 'c.id_cms = cs.id_cms AND cs.id_shop = ' . (int) $this->context->shop->id);
             $sql->where('c.active = 1');
             $sql->orderBy('c.id_cms ASC');
             $sql->limit(1);
@@ -988,6 +1017,8 @@ class Emporiqa extends Module
      */
     private function getEmporiqaSessionId()
     {
+        // emporiqa_sid is a custom cookie set by the widget JS.
+        // PS cookie manager only handles its own cookies, so $_COOKIE is used here.
         $raw = isset($_COOKIE['emporiqa_sid']) ? (string) $_COOKIE['emporiqa_sid'] : '';
         if (empty($raw) || !preg_match('/^[a-zA-Z0-9_\-]{1,128}$/', $raw)) {
             return '';

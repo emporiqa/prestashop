@@ -20,6 +20,14 @@ class EmporiqaWebhookClient
     /** @var array Events queued for deferred sending */
     private $pendingEvents = [];
 
+    /** @var EmporiqaChannelResolver */
+    private $channelResolver;
+
+    public function __construct(EmporiqaChannelResolver $channelResolver)
+    {
+        $this->channelResolver = $channelResolver;
+    }
+
     /**
      * Queue an event for deferred sending.
      *
@@ -103,22 +111,15 @@ class EmporiqaWebhookClient
      *
      * @param string $sessionId Session ID
      * @param string $entity Entity type (products, pages)
-     * @param string|null $language Language code
      *
      * @return bool
      */
-    public function startSyncSession($sessionId, $entity, $language = null)
+    public function startSyncSession($sessionId, $entity)
     {
-        $data = [
+        return $this->sendEvent('sync.start', [
             'session_id' => $sessionId,
             'entity' => $entity,
-            'channel' => (string) Configuration::get('EMPORIQA_WIDGET_CHANNEL'),
-        ];
-        if ($language !== null) {
-            $data['language'] = $language;
-        }
-
-        return $this->sendEvent('sync.start', $data);
+        ]);
     }
 
     /**
@@ -126,22 +127,15 @@ class EmporiqaWebhookClient
      *
      * @param string $sessionId Session ID
      * @param string $entity Entity type (products, pages)
-     * @param string|null $language Language code
      *
      * @return bool
      */
-    public function completeSyncSession($sessionId, $entity, $language = null)
+    public function completeSyncSession($sessionId, $entity)
     {
-        $data = [
+        return $this->sendEvent('sync.complete', [
             'session_id' => $sessionId,
             'entity' => $entity,
-            'channel' => (string) Configuration::get('EMPORIQA_WIDGET_CHANNEL'),
-        ];
-        if ($language !== null) {
-            $data['language'] = $language;
-        }
-
-        return $this->sendEvent('sync.complete', $data);
+        ]);
     }
 
     /**
@@ -161,30 +155,51 @@ class EmporiqaWebhookClient
             return ['success' => false, 'message' => 'Webhook Secret is not configured.'];
         }
 
-        $shopUrl = EmporiqaLanguageHelper::getShopBaseUrl();
-        $channel = (string) Configuration::get('EMPORIQA_WIDGET_CHANNEL');
+        $contexts = $this->channelResolver->getShopContexts();
 
-        $priceEntries = [];
-        $currencies = Currency::getCurrencies(true);
-        foreach ($currencies as $curr) {
-            $iso = is_array($curr) ? $curr['iso_code'] : $curr->iso_code;
-            $priceEntries[] = [
-                'currency' => $iso,
-                'current_price' => 0.0,
-                'regular_price' => 0.0,
-                'price_incl_tax' => 0.0,
-                'price_excl_tax' => 0.0,
-            ];
-        }
-        if (empty($priceEntries)) {
-            $defaultCurrency = Currency::getDefaultCurrency();
-            $priceEntries[] = [
-                'currency' => $defaultCurrency ? $defaultCurrency->iso_code : 'EUR',
-                'current_price' => 0.0,
-                'regular_price' => 0.0,
-                'price_incl_tax' => 0.0,
-                'price_excl_tax' => 0.0,
-            ];
+        $channels = [];
+        $names = [];
+        $descriptions = [];
+        $links = [];
+        $attributes = [];
+        $categories = [];
+        $brands = [];
+        $prices = [];
+        $availabilities = [];
+        $stocks = [];
+        $images = [];
+
+        foreach ($contexts as $channelKey => $ctx) {
+            $channels[] = $channelKey;
+            $names[$channelKey] = ['en' => 'Connection Test'];
+            $descriptions[$channelKey] = ['en' => 'This is a connection test.'];
+            $links[$channelKey] = ['en' => $ctx['domain'] . '/test'];
+            $attributes[$channelKey] = ['en' => new stdClass()];
+            $categories[$channelKey] = ['en' => ['Test > Connection']];
+            $brands[$channelKey] = 'Test';
+            $availabilities[$channelKey] = 'available';
+            $stocks[$channelKey] = null;
+            $images[$channelKey] = [];
+
+            $priceEntries = [];
+            if (!empty($ctx['currencies'])) {
+                foreach ($ctx['currencies'] as $curr) {
+                    $iso = is_array($curr) ? $curr['iso_code'] : $curr->iso_code;
+                    $priceEntries[] = [
+                        'currency' => $iso,
+                        'current_price' => 0.0,
+                        'regular_price' => 0.0,
+                    ];
+                }
+            }
+            if (empty($priceEntries)) {
+                $priceEntries[] = [
+                    'currency' => 'EUR',
+                    'current_price' => 0.0,
+                    'regular_price' => 0.0,
+                ];
+            }
+            $prices[$channelKey] = $priceEntries;
         }
 
         $payload = [
@@ -194,17 +209,17 @@ class EmporiqaWebhookClient
                     'data' => [
                         'identification_number' => 'test-connection',
                         'sku' => 'TEST-001',
-                        'channels' => [$channel],
-                        'names' => [$channel => ['en' => 'Connection Test']],
-                        'descriptions' => [$channel => ['en' => 'This is a connection test.']],
-                        'links' => [$channel => ['en' => $shopUrl . '/test']],
-                        'attributes' => [$channel => ['en' => new stdClass()]],
-                        'categories' => [$channel => ['en' => ['Test > Connection']]],
-                        'brands' => [$channel => 'Test'],
-                        'prices' => [$channel => $priceEntries],
-                        'availability_statuses' => [$channel => 'available'],
-                        'stock_quantities' => [$channel => null],
-                        'images' => [$channel => []],
+                        'channels' => $channels,
+                        'names' => $names,
+                        'descriptions' => $descriptions,
+                        'links' => $links,
+                        'attributes' => $attributes,
+                        'categories' => $categories,
+                        'brands' => $brands,
+                        'prices' => $prices,
+                        'availability_statuses' => $availabilities,
+                        'stock_quantities' => $stocks,
+                        'images' => $images,
                         'parent_sku' => null,
                         'is_parent' => false,
                         'variation_attributes' => new stdClass(),
@@ -243,6 +258,13 @@ class EmporiqaWebhookClient
             return null;
         }
 
+        $scheme = parse_url($baseUrl, PHP_URL_SCHEME);
+        if (!in_array($scheme, ['https', 'http'], true)) {
+            $this->log('Invalid webhook URL scheme: ' . ($scheme ?: 'none') . '. Only https:// and http:// are allowed.');
+
+            return null;
+        }
+
         return rtrim($baseUrl, '/') . '/' . $storeId . '/';
     }
 
@@ -278,7 +300,11 @@ class EmporiqaWebhookClient
             ];
         }
 
-        $jsonPayload = json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE);
+        $jsonPayload = json_encode($payload);
+        if ($jsonPayload === false) {
+            $this->log('JSON encode error: ' . json_last_error_msg() . ' — retrying with UTF-8 substitution');
+            $jsonPayload = json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE);
+        }
         if ($jsonPayload === false) {
             $this->log('JSON encode failed: ' . json_last_error_msg());
 
@@ -309,6 +335,21 @@ class EmporiqaWebhookClient
                 'X-Webhook-Signature: ' . $signature,
             ],
         ]);
+
+        // Respect PS proxy configuration
+        $proxyServer = Configuration::get('PS_PROXY_SERVER');
+        if (!empty($proxyServer)) {
+            curl_setopt($ch, CURLOPT_PROXY, $proxyServer);
+            $proxyPort = Configuration::get('PS_PROXY_PORT');
+            if (!empty($proxyPort)) {
+                curl_setopt($ch, CURLOPT_PROXYPORT, (int) $proxyPort);
+            }
+            $proxyUser = Configuration::get('PS_PROXY_USER');
+            $proxyPass = Configuration::get('PS_PROXY_PASSWD');
+            if (!empty($proxyUser)) {
+                curl_setopt($ch, CURLOPT_PROXYUSERPWD, $proxyUser . ':' . $proxyPass);
+            }
+        }
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);

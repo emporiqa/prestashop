@@ -102,7 +102,7 @@ class EmporiqaOrderFormatter
 
         return [
             'order_number' => $order->reference,
-            'status' => $orderState && is_array($orderState->name) ? ($orderState->name[$langId] ?? '') : '',
+            'status' => $orderState ? (is_array($orderState->name) ? ($orderState->name[$langId] ?? reset($orderState->name) ?: '') : (string) $orderState->name) : '',
             'date_created' => date('c', strtotime($order->date_add)),
             'total' => (float) $order->total_paid_tax_incl,
             'currency' => $currencyIso,

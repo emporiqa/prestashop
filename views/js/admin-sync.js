@@ -21,17 +21,38 @@
         return div.innerHTML;
     }
 
-    function addLogEntry(msg, type, isHtml) {
+    function addLogEntry(msg, type) {
         var log = document.querySelector('.emporiqa-sync-log');
         if (!log) return;
         log.classList.add('visible');
         var p = document.createElement('p');
         p.className = 'log-entry log-' + (type || 'info');
-        if (isHtml) {
-            p.innerHTML = msg;
-        } else {
-            p.textContent = msg;
-        }
+        p.textContent = msg;
+        log.appendChild(p);
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function addSyncCompleteMessage(baseUrl) {
+        var log = document.querySelector('.emporiqa-sync-log');
+        if (!log) return;
+        log.classList.add('visible');
+        var p = document.createElement('p');
+        p.className = 'log-entry log-info';
+        p.appendChild(document.createTextNode('Your data is now being processed by Emporiqa. This may take a few minutes depending on the number of items. Check the '));
+        var prodLink = document.createElement('a');
+        prodLink.href = baseUrl + '/platform/products/';
+        prodLink.target = '_blank';
+        prodLink.rel = 'noopener';
+        prodLink.textContent = 'Products';
+        p.appendChild(prodLink);
+        p.appendChild(document.createTextNode(' / '));
+        var pageLink = document.createElement('a');
+        pageLink.href = baseUrl + '/platform/pages/';
+        pageLink.target = '_blank';
+        pageLink.rel = 'noopener';
+        pageLink.textContent = 'Pages';
+        p.appendChild(pageLink);
+        p.appendChild(document.createTextNode(' list in your Emporiqa dashboard to follow the progress.'));
         log.appendChild(p);
         log.scrollTop = log.scrollHeight;
     }
@@ -370,11 +391,7 @@
                     updateProgress(100);
                     addLogEntry('Sync completed successfully!', 'success');
                     var baseUrl = (window.emporiqaSyncConfig || {}).platformBaseUrl || 'https://emporiqa.com';
-                    addLogEntry(
-                        'Your data is now being processed by Emporiqa. This may take a few minutes depending on the number of items. Check the <a href="' + escHtml(baseUrl) + '/platform/products/" target="_blank" rel="noopener">Products</a> / <a href="' + escHtml(baseUrl) + '/platform/pages/" target="_blank" rel="noopener">Pages</a> list in your Emporiqa dashboard to follow the progress.',
-                        'info',
-                        true
-                    );
+                    addSyncCompleteMessage(baseUrl);
                     setSyncRunning(false);
                     return;
                 }
@@ -475,11 +492,13 @@
                     testBtn.disabled = false;
                     if (resultEl) {
                         if (ok && response && response.success) {
-                            resultEl.innerHTML = '<span style="color:green;">' + escHtml(response.message || 'Success') + '</span>';
+                            resultEl.textContent = response.message || 'Success';
+                            resultEl.style.color = 'green';
                             renderPayloadPreview(response);
                         } else {
                             var msg = (response && response.message) ? response.message : 'Request failed.';
-                            resultEl.innerHTML = '<span style="color:red;">' + escHtml(msg) + '</span>';
+                            resultEl.textContent = msg;
+                            resultEl.style.color = 'red';
                         }
                     }
                 });
@@ -493,10 +512,10 @@
                 var url = this.dataset.url || '';
                 if (!url) return;
                 var showCopied = function () {
-                    var originalHtml = copyBtn.innerHTML;
-                    copyBtn.innerHTML = '<i class="icon-check"></i> Copied!';
+                    var originalText = copyBtn.textContent;
+                    copyBtn.textContent = 'Copied!';
                     setTimeout(function () {
-                        copyBtn.innerHTML = originalHtml;
+                        copyBtn.textContent = originalText;
                     }, 2000);
                 };
                 if (navigator.clipboard && navigator.clipboard.writeText) {

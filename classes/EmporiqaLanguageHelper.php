@@ -98,9 +98,8 @@ class EmporiqaLanguageHelper
      *
      * @return string Shop base URL
      */
-    public static function getShopBaseUrl()
+    public static function getShopBaseUrl(Context $context)
     {
-        $context = Context::getContext();
         $ssl = (bool) Configuration::get('PS_SSL_ENABLED');
         $base = $context->shop->getBaseURL($ssl);
 

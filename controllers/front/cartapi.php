@@ -19,10 +19,12 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
 {
     public $ssl = true;
 
-    public function initContent()
+    public function postProcess()
     {
-        if (!isset($_SERVER['REQUEST_METHOD']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-            return $this->sendJsonResponse([
+        $this->ajax = true;
+
+        if (!Tools::isSubmit('action')) {
+            $this->ajaxResponse([
                 'success' => false,
                 'error' => 'Method not allowed.',
                 'checkoutUrl' => null,
@@ -31,7 +33,7 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
         }
 
         if (Configuration::get('PS_CATALOG_MODE') || !Configuration::get('EMPORIQA_CART_ENABLED')) {
-            return $this->sendJsonResponse([
+            $this->ajaxResponse([
                 'success' => false,
                 'error' => 'Cart operations are disabled.',
                 'checkoutUrl' => null,
@@ -40,7 +42,7 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
         }
 
         if (!$this->validateCsrfToken()) {
-            return $this->sendJsonResponse([
+            $this->ajaxResponse([
                 'success' => false,
                 'error' => 'Security check failed. Please refresh the page and try again.',
                 'checkoutUrl' => null,
@@ -52,7 +54,7 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
         $allowedActions = ['add', 'get', 'update', 'remove', 'clear', 'checkout-url'];
 
         if (!in_array($action, $allowedActions, true)) {
-            return $this->sendJsonResponse([
+            $this->ajaxResponse([
                 'success' => false,
                 'error' => 'Invalid action.',
                 'checkoutUrl' => null,
@@ -61,7 +63,7 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
         }
 
         try {
-            $handler = new EmporiqaCartHandler();
+            $handler = new EmporiqaCartHandler($this->context);
 
             switch ($action) {
                 case 'add':
@@ -122,7 +124,21 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
             ];
         }
 
-        $this->sendJsonResponse($result);
+        $this->ajaxResponse($result);
+    }
+
+    public function initContent()
+    {
+        parent::initContent();
+
+        if (!$this->ajax) {
+            $this->ajaxResponse([
+                'success' => false,
+                'error' => 'Invalid request.',
+                'checkoutUrl' => null,
+                'cart' => null,
+            ]);
+        }
     }
 
     private function validateCsrfToken()
@@ -132,12 +148,11 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
         return !empty($token) && $token === Tools::getToken(false);
     }
 
-    private function sendJsonResponse(array $data)
+    private function ajaxResponse(array $data)
     {
         while (ob_get_level()) {
             ob_end_clean();
         }
-        http_response_code(200);
         header('Content-Type: application/json');
         exit(json_encode($data, JSON_INVALID_UTF8_SUBSTITUTE));
     }

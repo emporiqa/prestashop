@@ -8,7 +8,7 @@
 
 <div class="alert alert-info emporiqa-info-banner">
     {l s='Before your first sync, configure your LLM provider at' mod='emporiqa'}
-    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=llm" target="_blank" rel="noopener">
+    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=llm" target="_blank" rel="noopener noreferrer">
         {l s='Settings' mod='emporiqa'} &rarr; {l s='Store Integration' mod='emporiqa'} &rarr; {l s='Language Model & API Key' mod='emporiqa'}
     </a>.
 </div>

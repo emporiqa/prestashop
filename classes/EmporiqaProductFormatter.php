@@ -4,7 +4,8 @@
  *
  * Formats PrestaShop product and combination data into the consolidated
  * payload structure expected by the Emporiqa webhook API.
- * One event per product contains ALL languages in nested channel→language maps.
+ * One event per product contains ALL channels and ALL languages
+ * in nested channel→language maps.
  *
  * @author    Emporiqa
  * @copyright Emporiqa
@@ -19,23 +20,30 @@ class EmporiqaProductFormatter
     private static $categoryLangCache = [];
     private static $manufacturerCache = [];
     private static $imageTypeCache = [];
-    private static $currencyCache;
     private static $currencyObjCache = [];
 
-    /**
-     * Clear per-product caches between sync batches to prevent memory exhaustion.
-     */
+    /** @var EmporiqaChannelResolver */
+    private $channelResolver;
+
+    /** @var Context */
+    private $context;
+
+    public function __construct(EmporiqaChannelResolver $channelResolver, Context $context)
+    {
+        $this->context = $context;
+        $this->channelResolver = $channelResolver;
+    }
+
     public static function clearBatchCaches()
     {
         self::$categoryLangCache = [];
         self::$manufacturerCache = [];
-        self::$currencyCache = null;
         self::$currencyObjCache = [];
     }
 
     /**
      * Format a product (and its combinations) for the webhook payload.
-     * Returns consolidated payloads with all languages included.
+     * Includes all assigned channels with per-channel data.
      *
      * @param Product $product The product
      * @param string|null $syncSessionId Optional sync session ID
@@ -46,155 +54,233 @@ class EmporiqaProductFormatter
     {
         $productId = (int) $product->id;
         $parentSku = 'product-' . $productId;
-        $context = Context::getContext();
-        $channel = (string) Configuration::get('EMPORIQA_WIDGET_CHANNEL');
 
-        $enabledLanguages = EmporiqaLanguageHelper::getEnabledLanguages();
-        $langMap = EmporiqaLanguageHelper::getActiveLanguageMap();
+        $allContexts = $this->channelResolver->getShopContexts();
+        $productChannels = $this->channelResolver->getProductChannels($productId);
 
-        // Build translatable fields across all languages
-        $names = [];
-        $descriptions = [];
-        $links = [];
-        $attributes = [];
+        if (empty($productChannels)) {
+            return [];
+        }
 
-        foreach ($enabledLanguages as $iso) {
-            $langId = isset($langMap[$iso]) ? $langMap[$iso] : EmporiqaLanguageHelper::getLanguageIdByCode($iso);
-            if (!$langId) {
-                continue;
+        // Filter to only channels this product is assigned to
+        $contexts = [];
+        foreach ($allContexts as $channelKey => $ctx) {
+            if (in_array($channelKey, $productChannels, true)) {
+                $contexts[$channelKey] = $ctx;
             }
+        }
 
-            $name = is_array($product->name) ? ($product->name[$langId] ?? reset($product->name)) : $product->name;
-            $names[$iso] = $name ?: '';
+        if (empty($contexts)) {
+            return [];
+        }
 
-            $desc = is_array($product->description) ? ($product->description[$langId] ?? reset($product->description)) : $product->description;
-            $descriptions[$iso] = $desc ?: '';
+        // Shared fields (not channel/language-dependent)
+        $brand = $this->getProductBrand($product);
+        $defaultLangId = (int) Configuration::get('PS_LANG_DEFAULT');
 
-            $links[$iso] = $context->link->getProductLink($product, null, null, null, $langId);
+        // Collect all unique languages across all channels, then fetch combinations once per language
+        $allLangIds = [];
+        foreach ($contexts as $ctx) {
+            foreach ($ctx['languages'] as $iso => $langId) {
+                $allLangIds[$iso] = $langId;
+            }
+        }
 
-            $features = $product->getFrontFeatures($langId);
-            $featureMap = [];
-            if (!empty($features)) {
-                foreach ($features as $feature) {
-                    $fName = $feature['name'] ?? '';
-                    $fValue = $feature['value'] ?? '';
-                    if ($fName && $fValue) {
-                        $featureMap[$fName] = $fValue;
+        // Ensure default language is included for grouping
+        $defaultIso = null;
+        foreach ($allLangIds as $iso => $langId) {
+            if ($langId === $defaultLangId) {
+                $defaultIso = $iso;
+                break;
+            }
+        }
+        if ($defaultIso === null) {
+            $defaultIso = '__default';
+            $allLangIds[$defaultIso] = $defaultLangId;
+        }
+
+        $combinationsByLang = [];
+        $hasCombinations = false;
+        foreach ($allLangIds as $iso => $langId) {
+            $combos = $product->getAttributeCombinations($langId);
+            if (!empty($combos)) {
+                $hasCombinations = true;
+            }
+            $combinationsByLang[$iso] = $combos;
+        }
+
+        // Group combinations by product_attribute ID (prefer default language, fallback to any)
+        $groupedCombinations = [];
+        if ($hasCombinations) {
+            $groupingSource = !empty($combinationsByLang[$defaultIso])
+                ? $combinationsByLang[$defaultIso]
+                : null;
+            if ($groupingSource === null) {
+                foreach ($combinationsByLang as $combos) {
+                    if (!empty($combos)) {
+                        $groupingSource = $combos;
+                        break;
                     }
                 }
             }
-            $attributes[$iso] = !empty($featureMap) ? $featureMap : new stdClass();
-        }
-
-        // Translated categories per language
-        $categories = [];
-        foreach ($enabledLanguages as $iso) {
-            $langId = isset($langMap[$iso]) ? $langMap[$iso] : EmporiqaLanguageHelper::getLanguageIdByCode($iso);
-            if ($langId) {
-                $categories[$iso] = $this->getCategoryPaths($product, $langId);
-            }
-        }
-
-        // Shared fields (not language-dependent)
-        $brand = $this->getProductBrand($product);
-        $images = $this->getProductImages($product);
-
-        // Get default lang ID for combination queries
-        $defaultLangId = (int) Configuration::get('PS_LANG_DEFAULT');
-
-        $combinations = $product->getAttributeCombinations($defaultLangId);
-        $hasCombinations = !empty($combinations);
-
-        // Group combinations by id_product_attribute
-        $groupedCombinations = [];
-        if ($hasCombinations) {
-            foreach ($combinations as $combo) {
-                $paId = (int) $combo['id_product_attribute'];
-                if (!isset($groupedCombinations[$paId])) {
-                    $groupedCombinations[$paId] = [];
+            if ($groupingSource) {
+                foreach ($groupingSource as $combo) {
+                    $paId = (int) $combo['id_product_attribute'];
+                    if (!isset($groupedCombinations[$paId])) {
+                        $groupedCombinations[$paId] = [];
+                    }
+                    $groupedCombinations[$paId][] = $combo;
                 }
-                $groupedCombinations[$paId][] = $combo;
             }
         }
 
         $hasVariations = count($groupedCombinations) > 0;
 
-        // Pricing (multi-currency with tax breakdown)
-        if ($hasCombinations && !empty($groupedCombinations)) {
-            reset($groupedCombinations);
-            $firstPaId = key($groupedCombinations);
-            $prices = $this->buildPriceEntries($productId, $firstPaId);
-        } else {
-            $prices = $this->buildPriceEntries($productId);
-        }
+        // Build per-channel data
+        $channelKeys = [];
+        $allNames = [];
+        $allDescriptions = [];
+        $allLinks = [];
+        $allAttributes = [];
+        $allCategories = [];
+        $allBrands = [];
+        $allPrices = [];
+        $allAvailabilities = [];
+        $allStocks = [];
+        $allImages = [];
+        $allVariationAttributes = [];
 
-        // Stock & availability for parent
-        if ($hasVariations) {
-            $parentAvailability = 'out_of_stock';
-            $parentStock = 0;
-            foreach (array_keys($groupedCombinations) as $paId) {
-                $qty = (int) StockAvailable::getQuantityAvailableByProduct($productId, $paId);
-                $parentStock += $qty;
-                $comboStatus = $this->getAvailabilityStatus($product, $qty, $paId);
-                if ($comboStatus === 'available') {
-                    $parentAvailability = 'available';
-                } elseif ($comboStatus === 'backorder' && $parentAvailability !== 'available') {
-                    $parentAvailability = 'backorder';
-                }
-            }
-        } else {
-            $stock = (int) StockAvailable::getQuantityAvailableByProduct($productId);
-            $parentAvailability = $this->getAvailabilityStatus($product, $stock);
-            $parentStock = $stock;
-        }
+        foreach ($contexts as $channelKey => $ctx) {
+            $channelKeys[] = $channelKey;
+            $shopId = $ctx['shop_id'];
 
-        // Pre-fetch combinations per language once (reused for variation_attributes + formatCombination)
-        $combinationsByLang = [];
-        if ($hasCombinations) {
-            foreach ($enabledLanguages as $iso) {
-                $langId = isset($langMap[$iso]) ? $langMap[$iso] : EmporiqaLanguageHelper::getLanguageIdByCode($iso);
-                if ($langId) {
-                    $combinationsByLang[$iso] = $product->getAttributeCombinations($langId);
-                }
-            }
-        }
+            // Names, descriptions, links, attributes per language
+            $names = [];
+            $descriptions = [];
+            $links = [];
+            $attributes = [];
+            $categories = [];
 
-        // Variation attribute names for parent (translated per language)
-        $variationAttributes = [];
-        if ($hasVariations) {
-            foreach ($enabledLanguages as $iso) {
-                if (!isset($combinationsByLang[$iso])) {
+            $shopLink = new Link(null, null);
+
+            foreach ($ctx['enabled_languages'] as $iso) {
+                $langId = isset($ctx['languages'][$iso]) ? $ctx['languages'][$iso] : null;
+                if (!$langId) {
                     continue;
                 }
-                $langGrouped = [];
-                foreach ($combinationsByLang[$iso] as $combo) {
-                    $paId = (int) $combo['id_product_attribute'];
-                    if (!isset($langGrouped[$paId])) {
-                        $langGrouped[$paId] = [];
+
+                $name = is_array($product->name) ? ($product->name[$langId] ?? reset($product->name)) : $product->name;
+                $names[$iso] = $name ?: '';
+
+                $desc = is_array($product->description) ? ($product->description[$langId] ?? reset($product->description)) : $product->description;
+                $descriptions[$iso] = $desc ?: '';
+
+                $links[$iso] = $shopLink->getProductLink($product, null, null, null, $langId, $shopId);
+
+                $features = $product->getFrontFeatures($langId);
+                $featureMap = [];
+                if (!empty($features)) {
+                    foreach ($features as $feature) {
+                        $fName = $feature['name'] ?? '';
+                        $fValue = $feature['value'] ?? '';
+                        if ($fName && $fValue) {
+                            $featureMap[$fName] = $fValue;
+                        }
                     }
-                    $langGrouped[$paId][] = $combo;
                 }
-                $variationAttributes[$iso] = $this->getVariationAttributeNames($langGrouped);
+                $attributes[$iso] = !empty($featureMap) ? $featureMap : new stdClass();
+
+                $categories[$iso] = $this->getCategoryPaths($product, $langId);
+            }
+
+            $allNames[$channelKey] = $names;
+            $allDescriptions[$channelKey] = $descriptions;
+            $allLinks[$channelKey] = $links;
+            $allAttributes[$channelKey] = $attributes;
+            $allCategories[$channelKey] = $categories;
+            $allBrands[$channelKey] = $brand;
+
+            // Images — use shop domain for URLs
+            $allImages[$channelKey] = $this->getProductImages($product, $ctx['domain']);
+
+            // Prices per channel's currencies (shop-aware for multi-shop)
+            $firstPaId = ($hasCombinations && !empty($groupedCombinations)) ? key($groupedCombinations) : null;
+            $allPrices[$channelKey] = $this->buildPriceEntries($productId, $firstPaId, $ctx['currencies'], $shopId);
+
+            // Stock & availability per shop
+            if ($hasVariations) {
+                $parentAvailability = 'out_of_stock';
+                $parentStock = 0;
+                foreach (array_keys($groupedCombinations) as $paId) {
+                    $qty = $this->getStockQuantity($productId, $shopId, $paId);
+                    $parentStock += $qty;
+                    $comboStatus = $this->getAvailabilityStatus($product, $qty, $paId, $shopId);
+                    if ($comboStatus === 'available') {
+                        $parentAvailability = 'available';
+                    } elseif ($comboStatus === 'backorder' && $parentAvailability !== 'available') {
+                        $parentAvailability = 'backorder';
+                    }
+                }
+            } else {
+                $parentStock = $this->getStockQuantity($productId, $shopId);
+                $parentAvailability = $this->getAvailabilityStatus($product, $parentStock, null, $shopId);
+            }
+
+            $allAvailabilities[$channelKey] = $parentAvailability;
+            $allStocks[$channelKey] = $parentStock;
+
+            // Variation attribute names per language for this channel
+            if ($hasVariations) {
+                $varAttrs = [];
+                foreach ($ctx['enabled_languages'] as $iso) {
+                    if (!isset($combinationsByLang[$iso]) || empty($combinationsByLang[$iso])) {
+                        // Language has no combination translations — fall back to default language
+                        if (isset($combinationsByLang[$defaultIso]) && !empty($combinationsByLang[$defaultIso])) {
+                            $fallbackGrouped = [];
+                            foreach ($combinationsByLang[$defaultIso] as $combo) {
+                                $cPaId = (int) $combo['id_product_attribute'];
+                                if (!isset($fallbackGrouped[$cPaId])) {
+                                    $fallbackGrouped[$cPaId] = [];
+                                }
+                                $fallbackGrouped[$cPaId][] = $combo;
+                            }
+                            $varAttrs[$iso] = $this->getVariationAttributeNames($fallbackGrouped);
+                        } else {
+                            $varAttrs[$iso] = [];
+                        }
+                        continue;
+                    }
+                    $langGrouped = [];
+                    foreach ($combinationsByLang[$iso] as $combo) {
+                        $cPaId = (int) $combo['id_product_attribute'];
+                        if (!isset($langGrouped[$cPaId])) {
+                            $langGrouped[$cPaId] = [];
+                        }
+                        $langGrouped[$cPaId][] = $combo;
+                    }
+                    $varAttrs[$iso] = $this->getVariationAttributeNames($langGrouped);
+                }
+                $allVariationAttributes[$channelKey] = $varAttrs;
             }
         }
 
         $parentData = [
             'identification_number' => 'product-' . $productId,
             'sku' => $parentSku,
-            'channels' => [$channel],
-            'names' => [$channel => $names],
-            'descriptions' => [$channel => $descriptions],
-            'links' => [$channel => $links],
-            'attributes' => [$channel => $attributes],
-            'categories' => [$channel => $categories],
-            'brands' => [$channel => $brand],
-            'prices' => [$channel => $prices],
-            'availability_statuses' => [$channel => $parentAvailability],
-            'stock_quantities' => [$channel => $parentStock],
-            'images' => [$channel => $images],
+            'channels' => $channelKeys,
+            'names' => $allNames,
+            'descriptions' => $allDescriptions,
+            'links' => $allLinks,
+            'attributes' => $allAttributes,
+            'categories' => $allCategories,
+            'brands' => $allBrands,
+            'prices' => $allPrices,
+            'availability_statuses' => $allAvailabilities,
+            'stock_quantities' => $allStocks,
+            'images' => $allImages,
             'parent_sku' => null,
             'is_parent' => $hasVariations,
-            'variation_attributes' => !empty($variationAttributes) ? [$channel => $variationAttributes] : new stdClass(),
+            'variation_attributes' => !empty($allVariationAttributes) ? $allVariationAttributes : new stdClass(),
         ];
 
         if ($syncSessionId) {
@@ -210,12 +296,10 @@ class EmporiqaProductFormatter
                     $paId,
                     $comboGroup,
                     $parentSku,
-                    $categories,
-                    $brand,
-                    $images,
-                    $descriptions,
-                    $enabledLanguages,
-                    $langMap,
+                    $contexts,
+                    $channelKeys,
+                    $allCategories,
+                    $allDescriptions,
                     $combinationsByLang,
                     $syncSessionId
                 );
@@ -228,28 +312,22 @@ class EmporiqaProductFormatter
         return $result;
     }
 
-    /**
-     * Format a single combination in consolidated format.
-     */
     private function formatCombination(
         Product $product,
         $paId,
         array $comboGroup,
         $parentSku,
+        array $contexts,
+        array $channelKeys,
         array $parentCategories,
-        $parentBrand,
-        array $parentImages,
         array $parentDescriptions,
-        array $enabledLanguages,
-        array $langMap,
         array $combinationsByLang,
         $syncSessionId = null
     ) {
         $productId = (int) $product->id;
-        $context = Context::getContext();
-        $channel = (string) Configuration::get('EMPORIQA_WIDGET_CHANNEL');
+        $brand = $this->getProductBrand($product);
+        $defaultLangId = (int) Configuration::get('PS_LANG_DEFAULT');
 
-        // Build default-language attribute map for suffix
         $defaultAttributes = [];
         foreach ($comboGroup as $combo) {
             $groupName = $combo['group_name'] ?? '';
@@ -259,73 +337,88 @@ class EmporiqaProductFormatter
             }
         }
 
-        // Build translatable fields per language
-        $names = [];
-        $descriptions = [];
-        $links = [];
-        $attributes = [];
+        $allNames = [];
+        $allDescriptions = [];
+        $allLinks = [];
+        $allAttributes = [];
+        $allBrands = [];
+        $allPrices = [];
+        $allAvailabilities = [];
+        $allStocks = [];
+        $allImages = [];
 
-        foreach ($enabledLanguages as $iso) {
-            $langId = isset($langMap[$iso]) ? $langMap[$iso] : EmporiqaLanguageHelper::getLanguageIdByCode($iso);
-            if (!$langId) {
-                continue;
-            }
+        foreach ($contexts as $channelKey => $ctx) {
+            $shopId = $ctx['shop_id'];
+            $shopLink = new Link(null, null);
 
-            // Name with attribute suffix
-            $name = is_array($product->name) ? ($product->name[$langId] ?? reset($product->name)) : $product->name;
+            $names = [];
+            $descriptions = [];
+            $links = [];
+            $attributes = [];
 
-            // Extract this combination's attributes from pre-fetched data
-            $langAttributes = [];
-            if (isset($combinationsByLang[$iso])) {
-                foreach ($combinationsByLang[$iso] as $lc) {
-                    if ((int) $lc['id_product_attribute'] === (int) $paId) {
-                        $gn = $lc['group_name'] ?? '';
-                        $an = $lc['attribute_name'] ?? '';
-                        if ($gn && $an) {
-                            $langAttributes[$gn] = $an;
+            foreach ($ctx['enabled_languages'] as $iso) {
+                $langId = isset($ctx['languages'][$iso]) ? $ctx['languages'][$iso] : null;
+                if (!$langId) {
+                    continue;
+                }
+
+                $name = is_array($product->name) ? ($product->name[$langId] ?? reset($product->name)) : $product->name;
+
+                $langAttributes = [];
+                if (isset($combinationsByLang[$iso])) {
+                    foreach ($combinationsByLang[$iso] as $lc) {
+                        if ((int) $lc['id_product_attribute'] === (int) $paId) {
+                            $gn = $lc['group_name'] ?? '';
+                            $an = $lc['attribute_name'] ?? '';
+                            if ($gn && $an) {
+                                $langAttributes[$gn] = $an;
+                            }
                         }
                     }
                 }
+
+                $attrForSuffix = !empty($langAttributes) ? $langAttributes : $defaultAttributes;
+                if (!empty($attrForSuffix)) {
+                    $name .= ' - ' . implode(' / ', array_values($attrForSuffix));
+                }
+                $names[$iso] = $name ?: '';
+
+                $descriptions[$iso] = isset($parentDescriptions[$channelKey][$iso]) ? $parentDescriptions[$channelKey][$iso] : '';
+
+                $links[$iso] = $shopLink->getProductLink($product, null, null, null, $langId, $shopId, $paId);
+
+                $attributes[$iso] = !empty($langAttributes) ? $langAttributes : (!empty($defaultAttributes) ? $defaultAttributes : new stdClass());
             }
 
-            $attrForSuffix = !empty($langAttributes) ? $langAttributes : $defaultAttributes;
-            if (!empty($attrForSuffix)) {
-                $name .= ' - ' . implode(' / ', array_values($attrForSuffix));
+            $allNames[$channelKey] = $names;
+            $allDescriptions[$channelKey] = $descriptions;
+            $allLinks[$channelKey] = $links;
+            $allAttributes[$channelKey] = $attributes;
+            $allBrands[$channelKey] = $brand;
+
+            // Variation images
+            $varImages = $this->getProductImages($product, $ctx['domain']);
+            $combinationImages = Image::getImages($defaultLangId, $productId, $paId);
+            if (!empty($combinationImages)) {
+                $varImages = [];
+                $linkRewrite = is_array($product->link_rewrite)
+                    ? ($product->link_rewrite[$defaultLangId] ?? reset($product->link_rewrite))
+                    : $product->link_rewrite;
+                $imageTypeName = $this->getImageTypeName('large');
+                foreach ($combinationImages as $img) {
+                    $imageUrl = $ctx['domain'] . '/img/p/' . $this->getImagePath($img['id_image']) . '-' . $imageTypeName . '.jpg';
+                    $varImages[] = $imageUrl;
+                }
             }
-            $names[$iso] = $name ?: '';
+            $allImages[$channelKey] = array_values(array_unique($varImages));
 
-            $descriptions[$iso] = $parentDescriptions[$iso] ?? '';
+            $allPrices[$channelKey] = $this->buildPriceEntries($productId, $paId, $ctx['currencies'], $shopId);
 
-            $links[$iso] = $context->link->getProductLink($product, null, null, null, $langId, null, $paId);
-
-            $attributes[$iso] = !empty($langAttributes) ? $langAttributes : (!empty($defaultAttributes) ? $defaultAttributes : new stdClass());
+            $stock = $this->getStockQuantity($productId, $shopId, $paId);
+            $allStocks[$channelKey] = $stock;
+            $allAvailabilities[$channelKey] = $this->getAvailabilityStatus($product, $stock, $paId, $shopId);
         }
 
-        $prices = $this->buildPriceEntries($productId, $paId);
-
-        $stock = (int) StockAvailable::getQuantityAvailableByProduct($productId, $paId);
-        $availability = $this->getAvailabilityStatus($product, $stock, $paId);
-
-        // Variation images — use combination-specific if available, else parent
-        $varImages = $parentImages;
-        $defaultLangId = (int) Configuration::get('PS_LANG_DEFAULT');
-        $combinationImages = Image::getImages($defaultLangId, $productId, $paId);
-        if (!empty($combinationImages)) {
-            $varImages = [];
-            $linkRewrite = is_array($product->link_rewrite)
-                ? ($product->link_rewrite[$defaultLangId] ?? reset($product->link_rewrite))
-                : $product->link_rewrite;
-            foreach ($combinationImages as $img) {
-                $imageUrl = $context->link->getImageLink(
-                    $linkRewrite,
-                    $productId . '-' . $img['id_image'],
-                    $this->getImageTypeName('large')
-                );
-                $varImages[] = (strpos($imageUrl, 'http') === 0) ? $imageUrl : 'https://' . $imageUrl;
-            }
-        }
-
-        // SKU: use combination reference if available
         $reference = '';
         if (!empty($comboGroup[0]['reference'])) {
             $reference = $comboGroup[0]['reference'];
@@ -334,17 +427,17 @@ class EmporiqaProductFormatter
         $data = [
             'identification_number' => 'variation-' . $paId,
             'sku' => $reference ?: 'variation-' . $paId,
-            'channels' => [$channel],
-            'names' => [$channel => $names],
-            'descriptions' => [$channel => $descriptions],
-            'links' => [$channel => $links],
-            'attributes' => [$channel => $attributes],
-            'categories' => [$channel => $parentCategories],
-            'brands' => [$channel => $parentBrand],
-            'prices' => [$channel => $prices],
-            'availability_statuses' => [$channel => $availability],
-            'stock_quantities' => [$channel => $stock],
-            'images' => [$channel => array_values(array_unique($varImages))],
+            'channels' => $channelKeys,
+            'names' => $allNames,
+            'descriptions' => $allDescriptions,
+            'links' => $allLinks,
+            'attributes' => $allAttributes,
+            'categories' => $parentCategories,
+            'brands' => $allBrands,
+            'prices' => $allPrices,
+            'availability_statuses' => $allAvailabilities,
+            'stock_quantities' => $allStocks,
+            'images' => $allImages,
             'parent_sku' => $parentSku,
             'is_parent' => false,
             'variation_attributes' => new stdClass(),
@@ -357,13 +450,13 @@ class EmporiqaProductFormatter
         return $data;
     }
 
-    private function getAvailabilityStatus(Product $product, $stock, $paId = null)
+    private function getAvailabilityStatus(Product $product, $stock, $paId = null, $shopId = null)
     {
         if ($stock > 0) {
             return 'available';
         }
 
-        $outOfStockBehavior = $this->getOutOfStockBehavior((int) $product->id, $paId);
+        $outOfStockBehavior = $this->getOutOfStockBehavior((int) $product->id, $paId, $shopId);
         if ($outOfStockBehavior === 1) {
             return 'backorder';
         }
@@ -376,29 +469,43 @@ class EmporiqaProductFormatter
         return 'out_of_stock';
     }
 
-    /**
-     * Get out_of_stock value from ps_stock_available, supporting per-combination lookup.
-     * StockAvailable::outOfStock() only accepts (id_product, id_shop) — no combination support.
-     */
-    private function getOutOfStockBehavior($productId, $paId = null)
+    private function getOutOfStockBehavior($productId, $paId = null, $shopId = null)
     {
-        $shopId = (int) Context::getContext()->shop->id;
+        if ($shopId === null) {
+            $shopId = (int) $this->context->shop->id;
+        }
         $sql = new DbQuery();
         $sql->select('out_of_stock');
         $sql->from('stock_available');
         $sql->where('id_product = ' . (int) $productId);
         $sql->where('id_product_attribute = ' . ($paId ? (int) $paId : 0));
-        $sql->where('id_shop = ' . $shopId);
+        $sql->where('id_shop = ' . (int) $shopId);
 
         $result = Db::getInstance()->getValue($sql);
+
+        // Fallback for shared stock (shop group level, where id_shop = 0)
+        if ($result === false) {
+            $sql2 = new DbQuery();
+            $sql2->select('out_of_stock');
+            $sql2->from('stock_available');
+            $sql2->where('id_product = ' . (int) $productId);
+            $sql2->where('id_product_attribute = ' . ($paId ? (int) $paId : 0));
+            $sql2->where('id_shop = 0');
+            $result = Db::getInstance()->getValue($sql2);
+        }
 
         return $result !== false ? (int) $result : 2;
     }
 
-    /**
-     * Get hierarchical category paths for all assigned categories in a specific language.
-     * Returns e.g. ["Electronics > TVs", "Featured"].
-     */
+    private function getStockQuantity($productId, $shopId, $paId = null)
+    {
+        return (int) StockAvailable::getQuantityAvailableByProduct(
+            (int) $productId,
+            $paId ? (int) $paId : 0,
+            (int) $shopId
+        );
+    }
+
     private function getCategoryPaths(Product $product, $langId = null)
     {
         $productId = (int) $product->id;
@@ -470,27 +577,38 @@ class EmporiqaProductFormatter
         return $result;
     }
 
-    /**
-     * Build price entries for all active currencies with tax breakdown.
-     *
-     * @param int $productId Product ID
-     * @param int|null $paId Product attribute (combination) ID
-     *
-     * @return array
-     */
-    private function buildPriceEntries($productId, $paId = null)
+    private function buildPriceEntries($productId, $paId = null, $currencies = null, $shopId = null)
     {
-        $currencies = $this->getActiveCurrencies();
+        if ($currencies === null) {
+            $currencies = Currency::getCurrencies(true);
+        }
         if (empty($currencies)) {
             $default = Currency::getDefaultCurrency();
-            $currencies = $default ? [['id_currency' => $default->id, 'iso_code' => $default->iso_code, 'conversion_rate' => 1.0]] : [];
+            $currencies = $default ? [['id_currency' => $default->id, 'iso_code' => $default->iso_code]] : [];
         }
 
         $defaultCurrencyId = (int) Configuration::get('PS_CURRENCY_DEFAULT');
 
-        $priceInclTax = (float) Product::getPriceStatic($productId, true, $paId, 2);
-        $priceExclTax = (float) Product::getPriceStatic($productId, false, $paId, 2);
-        $regularInclTax = (float) Product::getPriceStatic($productId, true, $paId, 2, null, false, false);
+        // Build shop-specific context for correct multi-shop pricing
+        $priceContext = null;
+        if ($shopId && Shop::isFeatureActive() && (int) $shopId !== (int) $this->context->shop->id) {
+            $priceContext = $this->context->cloneContext();
+            $priceContext->shop = new Shop((int) $shopId);
+        }
+
+        $specificPrice = null;
+        $priceInclTax = (float) Product::getPriceStatic(
+            (int) $productId, true, $paId, 2, null, false, true, 1, false,
+            null, null, null, $specificPrice, true, true, $priceContext
+        );
+        $priceExclTax = (float) Product::getPriceStatic(
+            (int) $productId, false, $paId, 2, null, false, true, 1, false,
+            null, null, null, $specificPrice, true, true, $priceContext
+        );
+        $regularInclTax = (float) Product::getPriceStatic(
+            (int) $productId, true, $paId, 2, null, false, false, 1, false,
+            null, null, null, $specificPrice, true, true, $priceContext
+        );
 
         $entries = [];
 
@@ -530,28 +648,6 @@ class EmporiqaProductFormatter
         return $entries;
     }
 
-    private function getActiveCurrencies()
-    {
-        if (self::$currencyCache === null) {
-            $all = Currency::getCurrencies(true);
-            $seen = [];
-            $unique = [];
-            foreach ($all as $c) {
-                $id = (int) (is_array($c) ? $c['id_currency'] : $c->id);
-                if (!isset($seen[$id])) {
-                    $seen[$id] = true;
-                    $unique[] = $c;
-                }
-            }
-            self::$currencyCache = $unique;
-        }
-
-        return self::$currencyCache;
-    }
-
-    /**
-     * Get product brand. Returns empty string if no manufacturer.
-     */
     private function getProductBrand(Product $product)
     {
         $manufacturerId = (int) $product->id_manufacturer;
@@ -570,31 +666,48 @@ class EmporiqaProductFormatter
         return $result;
     }
 
-    /**
-     * Get all product image URLs (language-independent).
-     */
-    private function getProductImages(Product $product)
+    private function getProductImages(Product $product, $domain = null)
     {
-        $context = Context::getContext();
         $defaultLangId = (int) Configuration::get('PS_LANG_DEFAULT');
         $images = Image::getImages($defaultLangId, (int) $product->id);
         $urls = [];
 
-        $linkRewrite = is_array($product->link_rewrite)
-            ? ($product->link_rewrite[$defaultLangId] ?? reset($product->link_rewrite))
-            : $product->link_rewrite;
-
         $imageTypeName = $this->getImageTypeName('large');
         foreach ($images as $img) {
-            $imageUrl = $context->link->getImageLink(
-                $linkRewrite,
-                (int) $product->id . '-' . $img['id_image'],
-                $imageTypeName
-            );
-            $urls[] = (strpos($imageUrl, 'http') === 0) ? $imageUrl : 'https://' . $imageUrl;
+            $imageId = $img['id_image'];
+            if ($domain) {
+                $url = $domain . '/img/p/' . $this->getImagePath($imageId) . '-' . $imageTypeName . '.jpg';
+            } else {
+                $context = $this->context;
+                $linkRewrite = is_array($product->link_rewrite)
+                    ? ($product->link_rewrite[$defaultLangId] ?? reset($product->link_rewrite))
+                    : $product->link_rewrite;
+                $url = $context->link->getImageLink(
+                    $linkRewrite,
+                    (int) $product->id . '-' . $imageId,
+                    $imageTypeName
+                );
+                $url = (strpos($url, 'http') === 0) ? $url : 'https://' . $url;
+            }
+            $urls[] = $url;
         }
 
         return $urls;
+    }
+
+    /**
+     * Convert image ID to file path segments (e.g. 123 → 1/2/3/123).
+     */
+    private function getImagePath($imageId)
+    {
+        $id = (string) $imageId;
+        $parts = [];
+        for ($i = 0; $i < strlen($id); ++$i) {
+            $parts[] = $id[$i];
+        }
+        $parts[] = $id;
+
+        return implode('/', $parts);
     }
 
     private function getImageTypeName($type)

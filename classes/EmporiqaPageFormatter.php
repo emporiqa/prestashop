@@ -4,7 +4,8 @@
  *
  * Formats PrestaShop CMS page data into the consolidated payload
  * structure expected by the Emporiqa webhook API.
- * One event per page contains ALL languages in nested channel→language maps.
+ * One event per page contains ALL channels and ALL languages
+ * in nested channel→language maps.
  *
  * @author    Emporiqa
  * @copyright Emporiqa
@@ -16,9 +17,17 @@ if (!defined('_PS_VERSION_')) {
 
 class EmporiqaPageFormatter
 {
+    /** @var EmporiqaChannelResolver */
+    private $channelResolver;
+
+    public function __construct(EmporiqaChannelResolver $channelResolver)
+    {
+        $this->channelResolver = $channelResolver;
+    }
+
     /**
      * Format a CMS page for the webhook payload.
-     * Returns consolidated payload with all languages included.
+     * Includes all assigned channels with per-channel data.
      *
      * @param CMS $cms The CMS page
      * @param string|null $syncSessionId Optional sync session ID
@@ -27,41 +36,75 @@ class EmporiqaPageFormatter
      */
     public function format(CMS $cms, $syncSessionId = null)
     {
-        $context = Context::getContext();
-        $channel = (string) Configuration::get('EMPORIQA_WIDGET_CHANNEL');
+        $cmsId = (int) $cms->id;
 
-        $enabledLanguages = EmporiqaLanguageHelper::getEnabledLanguages();
-        $langMap = EmporiqaLanguageHelper::getActiveLanguageMap();
+        $allContexts = $this->channelResolver->getShopContexts();
+        $pageChannels = $this->channelResolver->getPageChannels($cmsId);
 
-        $titles = [];
-        $contents = [];
-        $links = [];
+        if (empty($pageChannels)) {
+            return [];
+        }
 
-        foreach ($enabledLanguages as $iso) {
-            $langId = isset($langMap[$iso]) ? $langMap[$iso] : EmporiqaLanguageHelper::getLanguageIdByCode($iso);
-            if (!$langId) {
-                continue;
+        $contexts = [];
+        foreach ($allContexts as $channelKey => $ctx) {
+            if (in_array($channelKey, $pageChannels, true)) {
+                $contexts[$channelKey] = $ctx;
+            }
+        }
+
+        if (empty($contexts)) {
+            return [];
+        }
+
+        $channelKeys = [];
+        $allTitles = [];
+        $allContents = [];
+        $allLinks = [];
+
+        foreach ($contexts as $channelKey => $ctx) {
+            $channelKeys[] = $channelKey;
+            $shopId = $ctx['shop_id'];
+
+            $titles = [];
+            $contents = [];
+            $links = [];
+
+            $shopLink = new Link(null, null);
+
+            foreach ($ctx['enabled_languages'] as $iso) {
+                $langId = isset($ctx['languages'][$iso]) ? $ctx['languages'][$iso] : null;
+                if (!$langId) {
+                    continue;
+                }
+
+                $title = is_array($cms->meta_title)
+                    ? ($cms->meta_title[$langId] ?? reset($cms->meta_title))
+                    : $cms->meta_title;
+                $titles[$iso] = $title ?: '';
+
+                $content = is_array($cms->content)
+                    ? ($cms->content[$langId] ?? reset($cms->content))
+                    : $cms->content;
+                $contents[$iso] = $content ?: '';
+
+                $rewrite = is_array($cms->link_rewrite) ? ($cms->link_rewrite[$langId] ?? null) : $cms->link_rewrite;
+                if (empty($rewrite)) {
+                    continue;
+                }
+                $links[$iso] = $shopLink->getCMSLink($cms, null, null, $langId, $shopId);
             }
 
-            $title = is_array($cms->meta_title)
-                ? ($cms->meta_title[$langId] ?? reset($cms->meta_title))
-                : $cms->meta_title;
-            $titles[$iso] = $title ?: '';
-
-            $content = is_array($cms->content)
-                ? ($cms->content[$langId] ?? reset($cms->content))
-                : $cms->content;
-            $contents[$iso] = $content ?: '';
-
-            $links[$iso] = $context->link->getCMSLink($cms, null, null, $langId);
+            $allTitles[$channelKey] = $titles;
+            $allContents[$channelKey] = $contents;
+            $allLinks[$channelKey] = $links;
         }
 
         $data = [
-            'identification_number' => 'page-' . (int) $cms->id,
-            'channels' => [$channel],
-            'titles' => [$channel => $titles],
-            'contents' => [$channel => $contents],
-            'links' => [$channel => $links],
+            'identification_number' => 'page-' . $cmsId,
+            'channels' => $channelKeys,
+            'titles' => $allTitles,
+            'contents' => $allContents,
+            'links' => $allLinks,
         ];
 
         if ($syncSessionId) {

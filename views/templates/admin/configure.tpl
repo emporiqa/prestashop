@@ -9,10 +9,10 @@
 <div class="emporiqa-wrap">
     <div class="emporiqa-header">
         <img src="{$emporiqa_module_dir|escape:'htmlall':'UTF-8'}views/img/logo-rectangle.png" alt="Emporiqa" class="emporiqa-header-logo" />
-        <a href="https://emporiqa.com/docs/prestashop/" target="_blank" rel="noopener" class="btn btn-default emporiqa-header-dashboard-btn">
+        <a href="https://emporiqa.com/docs/prestashop/" target="_blank" rel="noopener noreferrer" class="btn btn-default emporiqa-header-dashboard-btn">
             <i class="icon-book"></i> {l s='Documentation' mod='emporiqa'}
         </a>
-        <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/" target="_blank" rel="noopener" class="btn btn-default emporiqa-header-dashboard-btn">
+        <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/" target="_blank" rel="noopener noreferrer" class="btn btn-default emporiqa-header-dashboard-btn">
             <i class="icon-external-link"></i> {l s='Open Dashboard' mod='emporiqa'}
         </a>
     </div>
@@ -25,10 +25,10 @@
     <div class="alert alert-info emporiqa-info-banner">
         <strong>{l s='Quick Setup:' mod='emporiqa'}</strong>
         {l s='1. Copy your' mod='emporiqa'}
-        <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener">{l s='Store ID and Webhook Secret' mod='emporiqa'}</a>
+        <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener noreferrer">{l s='Store ID and Webhook Secret' mod='emporiqa'}</a>
         {l s='from the dashboard.' mod='emporiqa'}
         {l s='2. Configure your' mod='emporiqa'}
-        <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#llm-provider" target="_blank" rel="noopener">{l s='Language Model & API Key' mod='emporiqa'}</a>.
+        <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#llm-provider" target="_blank" rel="noopener noreferrer">{l s='Language Model & API Key' mod='emporiqa'}</a>.
         {l s='3. Save settings, then run your first sync from the Sync tab.' mod='emporiqa'}
     </div>
 
@@ -49,7 +49,7 @@
                             <div class="col-lg-9">
                                 <input type="text" name="EMPORIQA_STORE_ID" value="{$emporiqa_store_id|escape:'htmlall':'UTF-8'}" class="form-control" />
                                 <p class="help-block">{l s='Your Emporiqa Store ID. Find it in your' mod='emporiqa'}
-                                    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener">
+                                    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener noreferrer">
                                         {l s='Emporiqa dashboard under Settings' mod='emporiqa'} &rarr; {l s='Store Integration' mod='emporiqa'}
                                     </a>.
                                 </p>
@@ -61,14 +61,14 @@
                                 <input type="password" name="EMPORIQA_WEBHOOK_SECRET" value="" class="form-control"
                                     {if $emporiqa_webhook_secret_set}placeholder="{l s='Value is set (leave empty to keep)' mod='emporiqa'}"{/if} />
                                 <p class="help-block">{l s='Your webhook secret for HMAC signing. Find it in your' mod='emporiqa'}
-                                    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener">
+                                    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener noreferrer">
                                         {l s='Emporiqa dashboard under Settings' mod='emporiqa'} &rarr; {l s='Store Integration' mod='emporiqa'}
                                     </a>.
                                     {l s='Leave empty to keep the current value.' mod='emporiqa'}
                                 </p>
                                 {if !$emporiqa_webhook_secret_set}
                                     <p class="emporiqa-field-warning">{l s='Not configured.' mod='emporiqa'}
-                                        <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener">
+                                        <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener noreferrer">
                                             {l s='Get your secret from the dashboard.' mod='emporiqa'}
                                         </a>
                                     </p>
@@ -162,7 +162,7 @@
                                     <a class="slide-button btn"></a>
                                 </span>
                                 <p class="help-block">{l s='Require the customer\'s billing email to match before returning order data. To enable this, add a verification field with field name' mod='emporiqa'} <strong>email</strong>, {l s='label' mod='emporiqa'} <strong>{l s='Your email address' mod='emporiqa'}</strong>, {l s='and mark it as required in your' mod='emporiqa'}
-                                    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#order-tracking" target="_blank" rel="noopener">
+                                    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#order-tracking" target="_blank" rel="noopener noreferrer">
                                         {l s='Emporiqa dashboard' mod='emporiqa'} &rarr; {l s='Order Tracking' mod='emporiqa'}
                                     </a>.
                                 </p>
@@ -178,7 +178,7 @@
                                     </button>
                                 </div>
                                 <p class="help-block">{l s='Copy this URL into your' mod='emporiqa'}
-                                    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#order-tracking" target="_blank" rel="noopener">
+                                    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#order-tracking" target="_blank" rel="noopener noreferrer">
                                         {l s='Emporiqa dashboard under Settings' mod='emporiqa'} &rarr; {l s='Store Integration' mod='emporiqa'} &rarr; {l s='Order Tracking' mod='emporiqa'}
                                     </a>.
                                 </p>
