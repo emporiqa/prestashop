@@ -12,7 +12,7 @@ Customers can discover products, ask questions, add items to their cart, and che
 - **Page sync** — CMS pages synced with per-language content so the assistant can answer support questions from your own content.
 - **Chat widget** — Automatically embedded on your storefront in the correct language for the current visitor.
 - **In-chat cart** — Customers can add, update, remove items, and proceed to checkout directly from the chat.
-- **Order tracking** — HMAC-signed order lookup with optional email verification to protect customer data.
+- **Order tracking** — HMAC-signed order lookup with customer email verification to protect customer data.
 - **Conversion tracking** — Captures chat session IDs at checkout and reports order completion events for revenue attribution.
 - **Multi-language** — Automatic language mapping. All translations are consolidated into single webhook payloads per entity.
 - **Multi-shop / multi-channel** — Auto-discovers shops and maps each to an Emporiqa channel using a slugified shop name (e.g. "My Shop" → `my-shop`). Products and pages assigned to multiple shops include per-channel links, prices, stock, and languages in a single payload. The channel is always passed to the widget and webhooks.
@@ -27,29 +27,37 @@ Customers can discover products, ask questions, add items to their cart, and che
 
 ## Installation
 
-1. Get the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/), or download it free from your [Emporiqa dashboard](https://emporiqa.com/platform/) after creating an account.
+1. Get the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/), or clone/download it free from [github.com/emporiqa/prestashop](https://github.com/emporiqa/prestashop).
 2. In your PrestaShop back office, go to **Modules > Module Manager > Upload a module** and upload `emporiqa.zip`.
 3. Click **Configure** on the Emporiqa module.
-4. Enter your **Store ID** and **Webhook Secret** from your [Emporiqa dashboard](https://emporiqa.com/platform/).
-5. Go to the **Sync** tab and run the initial product and page sync.
-6. The chat widget appears automatically on your storefront.
+4. In **Connection Settings**, paste your **Store ID** and **Connection Secret** from your [Emporiqa dashboard](https://emporiqa.com/platform/), then click **Save**.
+5. Copy the **Order Tracking URL** shown in Connection Settings and paste it into your Emporiqa dashboard under **Store Integration → Order Tracking**.
+6. Open the **Sync** tab, click **Test Connection** to verify, then run the initial product and page sync.
+7. The chat widget appears automatically on your storefront.
 
 ## Configuration
 
 All settings are managed from the module configuration page (**Modules > Emporiqa > Configure**):
 
+**Connection Settings**
+
 | Setting | Description | Default |
 |---------|-------------|---------|
 | Store ID | Your Emporiqa store identifier | — |
-| Webhook Secret | HMAC-SHA256 signing secret | — |
-| Webhook URL | Emporiqa webhook endpoint | `https://emporiqa.com/webhooks/sync/` |
+| Connection Secret | HMAC-SHA256 signing secret (from your Emporiqa dashboard) | — |
+| Order Tracking URL | Read-only endpoint to paste into your Emporiqa dashboard | auto-generated |
+
+**Advanced**
+
+| Setting | Description | Default |
+|---------|-------------|---------|
 | Sync Products | Enable real-time product sync | On |
 | Sync Pages | Enable real-time CMS page sync | On |
 | Enabled Languages | Languages included in sync payloads | All active shop languages |
-| Order Tracking | Allow order status lookups from chat | On |
-| Order Tracking Email | Require email verification for lookups | On |
-| Cart Operations | Enable in-chat cart functionality | On |
+| Webhook URL | Emporiqa webhook endpoint | `https://emporiqa.com/webhooks/sync/` |
 | Batch Size | Products/pages per webhook request during bulk sync | 25 |
+
+Order tracking (with customer email verification) and in-chat cart operations are always enabled — no configuration needed.
 
 ## Module Structure
 

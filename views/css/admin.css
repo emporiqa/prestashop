@@ -331,3 +331,11 @@
     white-space: pre-wrap;
     word-break: break-word;
 }
+
+.emporiqa-panel-footer {
+    background: #fff;
+    padding: 16px;
+    margin-top: 16px;
+    border-top: 1px solid #e6e6e6;
+    text-align: right;
+}

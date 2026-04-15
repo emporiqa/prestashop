@@ -32,7 +32,7 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
             ]);
         }
 
-        if (Configuration::get('PS_CATALOG_MODE') || !Configuration::get('EMPORIQA_CART_ENABLED')) {
+        if (Configuration::get('PS_CATALOG_MODE')) {
             $this->ajaxResponse([
                 'success' => false,
                 'error' => 'Cart operations are disabled.',

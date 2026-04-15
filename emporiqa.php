@@ -55,7 +55,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.0.0';
+        $this->version = '1.1.0';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.0.0', 'max' => '9.99.99'];
@@ -300,9 +300,6 @@ class Emporiqa extends Module
         $syncProducts = (int) Tools::getValue('EMPORIQA_SYNC_PRODUCTS');
         $syncPages = (int) Tools::getValue('EMPORIQA_SYNC_PAGES');
         $enabledLanguages = Tools::getValue('EMPORIQA_ENABLED_LANGUAGES');
-        $orderTracking = (int) Tools::getValue('EMPORIQA_ORDER_TRACKING');
-        $orderTrackingEmail = (int) Tools::getValue('EMPORIQA_ORDER_TRACKING_EMAIL');
-        $cartEnabled = (int) Tools::getValue('EMPORIQA_CART_ENABLED');
         $batchSize = (int) Tools::getValue('EMPORIQA_BATCH_SIZE');
 
         if (!empty($storeId) && !Validate::isCleanHtml($storeId)) {
@@ -333,9 +330,9 @@ class Emporiqa extends Module
         Configuration::updateGlobalValue('EMPORIQA_SYNC_PRODUCTS', $syncProducts);
         Configuration::updateGlobalValue('EMPORIQA_SYNC_PAGES', $syncPages);
         Configuration::updateGlobalValue('EMPORIQA_ENABLED_LANGUAGES', json_encode($enabledLanguages));
-        Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING', $orderTracking);
-        Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING_EMAIL', $orderTrackingEmail);
-        Configuration::updateGlobalValue('EMPORIQA_CART_ENABLED', $cartEnabled);
+        Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING', 1);
+        Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING_EMAIL', 1);
+        Configuration::updateGlobalValue('EMPORIQA_CART_ENABLED', 1);
         Configuration::updateGlobalValue('EMPORIQA_BATCH_SIZE', $batchSize);
 
         return $this->displayConfirmation($this->l('Settings saved. To sync your products and pages, go to the Sync tab.'));
@@ -364,10 +361,7 @@ class Emporiqa extends Module
             'emporiqa_product_count' => $this->getSyncService()->countProducts(),
             'emporiqa_page_count' => $this->getSyncService()->countPages(),
             'emporiqa_platform_base_url' => $this->getPlatformBaseUrl(),
-            'emporiqa_order_tracking' => Configuration::get('EMPORIQA_ORDER_TRACKING'),
-            'emporiqa_order_tracking_email' => Configuration::get('EMPORIQA_ORDER_TRACKING_EMAIL'),
             'emporiqa_order_tracking_url' => $this->context->link->getModuleLink('emporiqa', 'ordertracking'),
-            'emporiqa_cart_enabled' => Configuration::get('EMPORIQA_CART_ENABLED'),
             'emporiqa_batch_size' => (int) Configuration::get('EMPORIQA_BATCH_SIZE') ?: 25,
         ]);
 

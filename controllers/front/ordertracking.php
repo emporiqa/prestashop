@@ -23,10 +23,6 @@ class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
     {
         $this->ajax = true;
 
-        if (!Configuration::get('EMPORIQA_ORDER_TRACKING')) {
-            $this->ajaxError('Order tracking is disabled.', 403);
-        }
-
         $body = file_get_contents('php://input');
         if (empty($body)) {
             $this->ajaxError('Method not allowed.', 405);
@@ -100,10 +96,9 @@ class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
         }
 
         /** @var Order $order */
-        $requireEmail = (bool) Configuration::get('EMPORIQA_ORDER_TRACKING_EMAIL');
         $providedEmail = !empty($verificationFields['email']) ? $verificationFields['email'] : '';
 
-        if ($requireEmail && empty($providedEmail)) {
+        if (empty($providedEmail)) {
             $this->ajaxError('Email verification required.', 400);
         }
 

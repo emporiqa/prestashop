@@ -6,18 +6,34 @@
  * @license   AFL-3.0
  *}
 
-<div class="alert alert-info emporiqa-info-banner">
-    {l s='Before your first sync, configure your LLM provider at' mod='emporiqa'}
-    <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=llm" target="_blank" rel="noopener noreferrer">
-        {l s='Settings' mod='emporiqa'} &rarr; {l s='Store Integration' mod='emporiqa'} &rarr; {l s='Language Model & API Key' mod='emporiqa'}
-    </a>.
-</div>
-
 {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set}
     <div class="alert alert-warning">
-        {l s='Configure your Store ID and Webhook Secret in the Settings tab before syncing.' mod='emporiqa'}
+        {l s='Configure your Store ID and Connection Secret in the Settings tab before syncing.' mod='emporiqa'}
     </div>
 {/if}
+
+{* --- Test Connection --- *}
+<div class="emporiqa-collapsible-section emporiqa-section-open" id="emporiqa-section-test">
+    <div class="emporiqa-section-header" tabindex="0" role="button" aria-expanded="true">
+        <span class="emporiqa-section-toggle"></span>
+        <i class="icon-exchange"></i> {l s='Test Connection' mod='emporiqa'}
+    </div>
+    <div class="emporiqa-section-body">
+        <div class="form-wrapper">
+            <div class="emporiqa-test-row">
+                <button type="button" id="emporiqa-test-connection" class="btn btn-default"
+                    {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set}disabled="disabled"{/if}>
+                    <i class="icon-plug"></i> {l s='Test Connection' mod='emporiqa'}
+                </button>
+                <span id="emporiqa-test-result"></span>
+            </div>
+            {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set}
+                <p class="help-block text-warning">{l s='Configure your Store ID and Connection Secret first.' mod='emporiqa'}</p>
+            {/if}
+            <div id="emporiqa-payload-preview"></div>
+        </div>
+    </div>
+</div>
 
 {* --- Sync Overview --- *}
 <div class="emporiqa-collapsible-section emporiqa-section-open" id="emporiqa-section-sync-overview">

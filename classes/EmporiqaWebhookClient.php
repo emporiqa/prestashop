@@ -152,7 +152,7 @@ class EmporiqaWebhookClient
 
         $secret = Configuration::get('EMPORIQA_WEBHOOK_SECRET');
         if (empty($secret)) {
-            return ['success' => false, 'message' => 'Webhook Secret is not configured.'];
+            return ['success' => false, 'message' => 'Connection Secret is not configured.'];
         }
 
         $contexts = $this->channelResolver->getShopContexts();
@@ -295,7 +295,7 @@ class EmporiqaWebhookClient
         if (empty($secret)) {
             return [
                 'success' => false,
-                'error' => 'Webhook Secret is not configured.',
+                'error' => 'Connection Secret is not configured.',
                 'response' => null,
             ];
         }
