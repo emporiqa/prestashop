@@ -1,17 +1,22 @@
 # Emporiqa Chat Assistant for PrestaShop
 
-[Emporiqa](https://emporiqa.com) chat assistant module for PrestaShop 8 and 9. Syncs your product catalog and CMS pages to the Emporiqa platform, embeds the chat widget on your storefront, and provides endpoints for in-chat cart operations and order tracking.
+The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8 and 9 — an online salesperson that closes sales in your PrestaShop store. The module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and exposes endpoints for in-chat cart operations and order tracking.
 
-Customers can discover products, ask questions, add items to their cart, and check order status — all within a natural chat conversation in 65+ languages.
+The chatbot acts like an online salesperson — shoppers describe what they need (or upload a photo of something they like), it finds matching products from your catalog, handles objections, answers questions from your CMS pages, compares items, and walks them to cart and checkout in 65+ languages.
 
-> **[Full Documentation](https://emporiqa.com/docs/prestashop/)** · **[Live Demo](https://demo.emporiqa.com)** · **[Emporiqa Platform](https://emporiqa.com)**
+[![Emporiqa chat widget recommending wireless headphones from the store's catalog, with a product card showing price, stock, and an add-to-cart button](docs/images/product-search.jpg)](https://demo.emporiqa.com)
+
+> **[Integration overview](https://emporiqa.com/integrations/prestashop/)** · **[Full Documentation](https://emporiqa.com/docs/prestashop/)** · **[Live Demo](https://demo.emporiqa.com)** · **[Pricing](https://emporiqa.com/pricing/)**
 
 ## Features
 
+- **Closes sales** — Handles objections like "too expensive" by suggesting alternatives from your catalog, instead of giving up.
+- **Visual search** — Shoppers upload a photo in the widget; the chatbot matches it against your synced PrestaShop catalog (no extra config required).
+- **Brand-safe answers** — The chatbot only answers from products and CMS pages you've synced. No hallucinated products, prices, or policies; low-confidence replies hand off to your team.
 - **Product sync** — Real-time webhook sync of catalog products and combinations (variations). Parent/child relationships, attributes, prices, stock levels, and images are all included.
 - **Page sync** — CMS pages synced with per-language content so the assistant can answer support questions from your own content.
 - **Chat widget** — Automatically embedded on your storefront in the correct language for the current visitor.
-- **In-chat cart** — Customers can add, update, remove items, and proceed to checkout directly from the chat.
+- **In-chat cart** — Shoppers can add, update, remove items, and proceed to checkout directly from the chat.
 - **Order tracking** — HMAC-signed order lookup with customer email verification to protect customer data.
 - **Conversion tracking** — Captures chat session IDs at checkout and reports order completion events for revenue attribution.
 - **Multi-language** — Automatic language mapping. All translations are consolidated into single webhook payloads per entity.
@@ -27,7 +32,7 @@ Customers can discover products, ask questions, add items to their cart, and che
 
 ## Installation
 
-1. Get the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/), or clone/download it free from [github.com/emporiqa/prestashop](https://github.com/emporiqa/prestashop).
+1. Download the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/).
 2. In your PrestaShop back office, go to **Modules > Module Manager > Upload a module** and upload `emporiqa.zip`.
 3. Click **Configure** on the Emporiqa module.
 4. In **Connection Settings**, paste your **Store ID** and **Connection Secret** from your [Emporiqa dashboard](https://emporiqa.com/platform/), then click **Save**.
@@ -137,11 +142,15 @@ Developers can hook into the sync pipeline to customize payloads or cancel syncs
 | `actionEmporiqaWidgetParams` | Modify chat widget embed parameters | `&$params` |
 | `actionEmporiqaOrderTracking` | Modify order tracking response | `&$data`, `$order` |
 
-## Documentation
+## Pricing
 
-For configuration details, webhook format reference, hook examples, and troubleshooting:
+The module is free. Emporiqa plans start at $59/month (Starter, 2,000 products). All plans include generous conversation limits, unlimited team members, and a 14-day free trial. Sandbox stores are free forever (100 products, 20 pages). See [pricing](https://emporiqa.com/pricing/).
 
-**[https://emporiqa.com/docs/prestashop/](https://emporiqa.com/docs/prestashop/)**
+## Documentation & Support
+
+- **Integration overview**: [https://emporiqa.com/integrations/prestashop/](https://emporiqa.com/integrations/prestashop/)
+- **Full documentation**: [https://emporiqa.com/docs/prestashop/](https://emporiqa.com/docs/prestashop/) — configuration details, webhook format reference, hook examples, and troubleshooting
+- **Email**: support@emporiqa.com
 
 ## License
 
