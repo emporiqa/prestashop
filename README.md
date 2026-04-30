@@ -12,7 +12,7 @@ The chatbot acts like an online salesperson — shoppers describe what they need
 
 - **Closes sales** — Handles objections like "too expensive" by suggesting alternatives from your catalog, instead of giving up.
 - **Visual search** — Shoppers upload a photo in the widget; the chatbot matches it against your synced PrestaShop catalog (no extra config required).
-- **Brand-safe answers** — The chatbot only answers from products and CMS pages you've synced. No hallucinated products, prices, or policies; low-confidence replies hand off to your team.
+- **Brand-safe answers** — Every reply comes from your synced products and CMS pages, never from training data. Low-confidence questions hand off to your team.
 - **Product sync** — Real-time webhook sync of catalog products and combinations (variations). Parent/child relationships, attributes, prices, stock levels, and images are all included.
 - **Page sync** — CMS pages synced with per-language content so the assistant can answer support questions from your own content.
 - **Chat widget** — Automatically embedded on your storefront in the correct language for the current visitor.
@@ -21,7 +21,7 @@ The chatbot acts like an online salesperson — shoppers describe what they need
 - **Conversion tracking** — Captures chat session IDs at checkout and reports order completion events for revenue attribution.
 - **Multi-language** — Automatic language mapping. All translations are consolidated into single webhook payloads per entity.
 - **Multi-shop / multi-channel** — Auto-discovers shops and maps each to an Emporiqa channel using a slugified shop name (e.g. "My Shop" → `my-shop`). Products and pages assigned to multiple shops include per-channel links, prices, stock, and languages in a single payload. The channel is always passed to the widget and webhooks.
-- **Async delivery** — Deferred execution via `register_shutdown_function` ensures webhooks never block your storefront.
+- **Async delivery** — Webhooks dispatch via `register_shutdown_function` after the response is sent, with `fastcgi_finish_request` when available.
 - **Extensibility hooks** — 7 action hooks for developers to customize sync payloads, cancel syncs, or modify widget behavior.
 
 ## Requirements
@@ -144,7 +144,7 @@ Developers can hook into the sync pipeline to customize payloads or cancel syncs
 
 ## Pricing
 
-The module is free. Emporiqa plans start at $59/month (Starter, 2,000 products). All plans include generous conversation limits, unlimited team members, and a 14-day free trial. Sandbox stores are free forever (100 products, 20 pages). See [pricing](https://emporiqa.com/pricing/).
+The module is free. Emporiqa plans start at $59/month with a 14-day free trial. Sandbox stores are free forever (100 products, 20 pages, no credit card). Full plan details at [emporiqa.com/pricing/](https://emporiqa.com/pricing/).
 
 ## Documentation & Support
 
