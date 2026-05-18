@@ -53,7 +53,12 @@ class EmporiqaProductFormatter
     public function format(Product $product, $syncSessionId = null)
     {
         $productId = (int) $product->id;
-        $parentSku = 'product-' . $productId;
+        // Use the merchant's Reference field as SKU when set so that customers
+        // who type the reference shown on the storefront page (e.g. "2332")
+        // resolve to the right product. Fall back to the namespaced ID when
+        // the merchant hasn't filled it in.
+        $reference = trim((string) $product->reference);
+        $parentSku = $reference !== '' ? $reference : 'product-' . $productId;
 
         $allContexts = $this->channelResolver->getShopContexts();
         $productChannels = $this->channelResolver->getProductChannels($productId);
@@ -154,6 +159,15 @@ class EmporiqaProductFormatter
             $channelKeys[] = $channelKey;
             $shopId = $ctx['shop_id'];
 
+            // Reload Product scoped to this shop so translation arrays
+            // (name/description/link_rewrite/features) populate correctly even
+            // when the admin AJAX is running under a shop where this product
+            // has no rows in ps_product_lang.
+            $shopProduct = new Product($productId, false, null, $shopId);
+            if (!Validate::isLoadedObject($shopProduct)) {
+                $shopProduct = $product;
+            }
+
             // Names, descriptions, links, attributes per language
             $names = [];
             $descriptions = [];
@@ -169,15 +183,15 @@ class EmporiqaProductFormatter
                     continue;
                 }
 
-                $name = is_array($product->name) ? ($product->name[$langId] ?? reset($product->name)) : $product->name;
+                $name = is_array($shopProduct->name) ? ($shopProduct->name[$langId] ?? reset($shopProduct->name)) : $shopProduct->name;
                 $names[$iso] = $name ?: '';
 
-                $desc = is_array($product->description) ? ($product->description[$langId] ?? reset($product->description)) : $product->description;
+                $desc = is_array($shopProduct->description) ? ($shopProduct->description[$langId] ?? reset($shopProduct->description)) : $shopProduct->description;
                 $descriptions[$iso] = $desc ?: '';
 
-                $links[$iso] = $shopLink->getProductLink($product, null, null, null, $langId, $shopId);
+                $links[$iso] = $shopLink->getProductLink($shopProduct, null, null, null, $langId, $shopId);
 
-                $features = $product->getFrontFeatures($langId);
+                $features = $shopProduct->getFrontFeatures($langId);
                 $featureMap = [];
                 if (!empty($features)) {
                     foreach ($features as $feature) {
@@ -190,18 +204,19 @@ class EmporiqaProductFormatter
                 }
                 $attributes[$iso] = !empty($featureMap) ? $featureMap : new stdClass();
 
-                $categories[$iso] = $this->getCategoryPaths($product, $langId);
+                $categories[$iso] = $this->getCategoryPaths($shopProduct, $langId, $shopId);
             }
 
-            $allNames[$channelKey] = $names;
-            $allDescriptions[$channelKey] = $descriptions;
-            $allLinks[$channelKey] = $links;
-            $allAttributes[$channelKey] = $attributes;
-            $allCategories[$channelKey] = $categories;
+            // Empty PHP arrays serialize as JSON []; the API expects {} (dict).
+            $allNames[$channelKey] = !empty($names) ? $names : new stdClass();
+            $allDescriptions[$channelKey] = !empty($descriptions) ? $descriptions : new stdClass();
+            $allLinks[$channelKey] = !empty($links) ? $links : new stdClass();
+            $allAttributes[$channelKey] = !empty($attributes) ? $attributes : new stdClass();
+            $allCategories[$channelKey] = !empty($categories) ? $categories : new stdClass();
             $allBrands[$channelKey] = $brand;
 
-            // Images — use shop domain for URLs
-            $allImages[$channelKey] = $this->getProductImages($product, $ctx['domain']);
+            // Images — use shop domain for URLs (list, [] is valid JSON)
+            $allImages[$channelKey] = $this->getProductImages($shopProduct, $ctx['domain']);
 
             // Prices per channel's currencies (shop-aware for multi-shop)
             $firstPaId = ($hasCombinations && !empty($groupedCombinations)) ? key($groupedCombinations) : null;
@@ -214,7 +229,7 @@ class EmporiqaProductFormatter
                 foreach (array_keys($groupedCombinations) as $paId) {
                     $qty = $this->getStockQuantity($productId, $shopId, $paId);
                     $parentStock += $qty;
-                    $comboStatus = $this->getAvailabilityStatus($product, $qty, $paId, $shopId);
+                    $comboStatus = $this->getAvailabilityStatus($shopProduct, $qty, $paId, $shopId);
                     if ($comboStatus === 'available') {
                         $parentAvailability = 'available';
                     } elseif ($comboStatus === 'backorder' && $parentAvailability !== 'available') {
@@ -223,7 +238,7 @@ class EmporiqaProductFormatter
                 }
             } else {
                 $parentStock = $this->getStockQuantity($productId, $shopId);
-                $parentAvailability = $this->getAvailabilityStatus($product, $parentStock, null, $shopId);
+                $parentAvailability = $this->getAvailabilityStatus($shopProduct, $parentStock, null, $shopId);
             }
 
             $allAvailabilities[$channelKey] = $parentAvailability;
@@ -351,6 +366,12 @@ class EmporiqaProductFormatter
             $shopId = $ctx['shop_id'];
             $shopLink = new Link(null, null);
 
+            // Reload Product scoped to this shop — see note in format().
+            $shopProduct = new Product($productId, false, null, $shopId);
+            if (!Validate::isLoadedObject($shopProduct)) {
+                $shopProduct = $product;
+            }
+
             $names = [];
             $descriptions = [];
             $links = [];
@@ -362,7 +383,7 @@ class EmporiqaProductFormatter
                     continue;
                 }
 
-                $name = is_array($product->name) ? ($product->name[$langId] ?? reset($product->name)) : $product->name;
+                $name = is_array($shopProduct->name) ? ($shopProduct->name[$langId] ?? reset($shopProduct->name)) : $shopProduct->name;
 
                 $langAttributes = [];
                 if (isset($combinationsByLang[$iso])) {
@@ -385,25 +406,26 @@ class EmporiqaProductFormatter
 
                 $descriptions[$iso] = isset($parentDescriptions[$channelKey][$iso]) ? $parentDescriptions[$channelKey][$iso] : '';
 
-                $links[$iso] = $shopLink->getProductLink($product, null, null, null, $langId, $shopId, $paId);
+                $links[$iso] = $shopLink->getProductLink($shopProduct, null, null, null, $langId, $shopId, $paId);
 
                 $attributes[$iso] = !empty($langAttributes) ? $langAttributes : (!empty($defaultAttributes) ? $defaultAttributes : new stdClass());
             }
 
-            $allNames[$channelKey] = $names;
-            $allDescriptions[$channelKey] = $descriptions;
-            $allLinks[$channelKey] = $links;
-            $allAttributes[$channelKey] = $attributes;
+            // Empty PHP arrays serialize as JSON []; the API expects {} (dict).
+            $allNames[$channelKey] = !empty($names) ? $names : new stdClass();
+            $allDescriptions[$channelKey] = !empty($descriptions) ? $descriptions : new stdClass();
+            $allLinks[$channelKey] = !empty($links) ? $links : new stdClass();
+            $allAttributes[$channelKey] = !empty($attributes) ? $attributes : new stdClass();
             $allBrands[$channelKey] = $brand;
 
             // Variation images
-            $varImages = $this->getProductImages($product, $ctx['domain']);
+            $varImages = $this->getProductImages($shopProduct, $ctx['domain']);
             $combinationImages = Image::getImages($defaultLangId, $productId, $paId);
             if (!empty($combinationImages)) {
                 $varImages = [];
-                $linkRewrite = is_array($product->link_rewrite)
-                    ? ($product->link_rewrite[$defaultLangId] ?? reset($product->link_rewrite))
-                    : $product->link_rewrite;
+                $linkRewrite = is_array($shopProduct->link_rewrite)
+                    ? ($shopProduct->link_rewrite[$defaultLangId] ?? reset($shopProduct->link_rewrite))
+                    : $shopProduct->link_rewrite;
                 $imageTypeName = $this->getImageTypeName('large');
                 foreach ($combinationImages as $img) {
                     $imageUrl = $ctx['domain'] . '/img/p/' . $this->getImagePath($img['id_image']) . '-' . $imageTypeName . '.jpg';
@@ -416,7 +438,7 @@ class EmporiqaProductFormatter
 
             $stock = $this->getStockQuantity($productId, $shopId, $paId);
             $allStocks[$channelKey] = $stock;
-            $allAvailabilities[$channelKey] = $this->getAvailabilityStatus($product, $stock, $paId, $shopId);
+            $allAvailabilities[$channelKey] = $this->getAvailabilityStatus($shopProduct, $stock, $paId, $shopId);
         }
 
         $reference = '';
@@ -506,14 +528,17 @@ class EmporiqaProductFormatter
         );
     }
 
-    private function getCategoryPaths(Product $product, $langId = null)
+    private function getCategoryPaths(Product $product, $langId = null, $shopId = null)
     {
         $productId = (int) $product->id;
         if ($langId === null) {
             $langId = (int) Configuration::get('PS_LANG_DEFAULT');
         }
+        if (!$shopId) {
+            $shopId = (int) Configuration::get('PS_SHOP_DEFAULT');
+        }
 
-        $cacheKey = $productId . '-' . $langId;
+        $cacheKey = $productId . '-' . $shopId . '-' . $langId;
         if (isset(self::$categoryLangCache[$cacheKey])) {
             return self::$categoryLangCache[$cacheKey];
         }
@@ -528,44 +553,49 @@ class EmporiqaProductFormatter
         $paths = [];
 
         foreach ($categoryIds as $categoryId) {
-            $catCacheKey = (int) $categoryId . '-' . $langId;
-            if (isset(self::$categoryLangCache['cat-' . $catCacheKey])) {
-                $path = self::$categoryLangCache['cat-' . $catCacheKey];
+            $catCacheKey = 'cat-' . (int) $categoryId . '-' . $shopId . '-' . $langId;
+            if (isset(self::$categoryLangCache[$catCacheKey])) {
+                $path = self::$categoryLangCache[$catCacheKey];
                 if ($path !== '') {
                     $paths[] = $path;
                 }
                 continue;
             }
 
-            $category = new Category((int) $categoryId, $langId);
-            if (!Validate::isLoadedObject($category)) {
-                self::$categoryLangCache['cat-' . $catCacheKey] = '';
+            // Look up the leaf node's tree position to walk the ancestor chain
+            // via nleft/nright. Avoids relying on PrestaShop's Category object
+            // which inherits the current request's shop context.
+            $leaf = Db::getInstance()->getRow(
+                'SELECT nleft, nright FROM ' . _DB_PREFIX_ . 'category WHERE id_category = ' . (int) $categoryId
+            );
+            if (!$leaf) {
+                self::$categoryLangCache[$catCacheKey] = '';
                 continue;
             }
 
-            $parents = $category->getParentsCategories($langId);
-            if (empty($parents)) {
-                self::$categoryLangCache['cat-' . $catCacheKey] = '';
-                continue;
-            }
-
-            usort($parents, function ($a, $b) {
-                return (int) $a['level_depth'] - (int) $b['level_depth'];
-            });
+            $rows = Db::getInstance()->executeS(
+                'SELECT cl.name FROM ' . _DB_PREFIX_ . 'category c'
+                . ' INNER JOIN ' . _DB_PREFIX_ . 'category_lang cl'
+                . '   ON c.id_category = cl.id_category'
+                . '   AND cl.id_shop = ' . (int) $shopId
+                . '   AND cl.id_lang = ' . (int) $langId
+                . ' WHERE c.nleft <= ' . (int) $leaf['nleft']
+                . '   AND c.nright >= ' . (int) $leaf['nright']
+                . '   AND c.level_depth >= 2'
+                . ' ORDER BY c.level_depth ASC'
+            );
 
             $segments = [];
-            foreach ($parents as $parent) {
-                if ((int) $parent['level_depth'] < 2) {
-                    continue;
-                }
-                $name = $parent['name'] ?? '';
-                if ($name !== '') {
-                    $segments[] = $name;
+            if ($rows) {
+                foreach ($rows as $row) {
+                    if (!empty($row['name'])) {
+                        $segments[] = $row['name'];
+                    }
                 }
             }
 
             $path = !empty($segments) ? implode(' > ', $segments) : '';
-            self::$categoryLangCache['cat-' . $catCacheKey] = $path;
+            self::$categoryLangCache[$catCacheKey] = $path;
             if ($path !== '') {
                 $paths[] = $path;
             }

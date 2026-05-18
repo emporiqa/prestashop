@@ -55,7 +55,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.1.0';
+        $this->version = '1.1.1';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.0.0', 'max' => '9.99.99'];

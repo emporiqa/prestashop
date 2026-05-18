@@ -65,6 +65,15 @@ class EmporiqaPageFormatter
             $channelKeys[] = $channelKey;
             $shopId = $ctx['shop_id'];
 
+            // Reload the CMS scoped to this shop so translation arrays
+            // populate even when the admin AJAX is running under a different
+            // shop context (the passed-in $cms is loaded against the current
+            // request's shop, which may have no rows in ps_cms_lang).
+            $shopCms = new CMS($cmsId, null, $shopId);
+            if (!Validate::isLoadedObject($shopCms)) {
+                continue;
+            }
+
             $titles = [];
             $contents = [];
             $links = [];
@@ -77,26 +86,27 @@ class EmporiqaPageFormatter
                     continue;
                 }
 
-                $title = is_array($cms->meta_title)
-                    ? ($cms->meta_title[$langId] ?? reset($cms->meta_title))
-                    : $cms->meta_title;
+                $title = is_array($shopCms->meta_title)
+                    ? ($shopCms->meta_title[$langId] ?? reset($shopCms->meta_title))
+                    : $shopCms->meta_title;
                 $titles[$iso] = $title ?: '';
 
-                $content = is_array($cms->content)
-                    ? ($cms->content[$langId] ?? reset($cms->content))
-                    : $cms->content;
+                $content = is_array($shopCms->content)
+                    ? ($shopCms->content[$langId] ?? reset($shopCms->content))
+                    : $shopCms->content;
                 $contents[$iso] = $content ?: '';
 
-                $rewrite = is_array($cms->link_rewrite) ? ($cms->link_rewrite[$langId] ?? null) : $cms->link_rewrite;
+                $rewrite = is_array($shopCms->link_rewrite) ? ($shopCms->link_rewrite[$langId] ?? null) : $shopCms->link_rewrite;
                 if (empty($rewrite)) {
                     continue;
                 }
-                $links[$iso] = $shopLink->getCMSLink($cms, null, null, $langId, $shopId);
+                $links[$iso] = $shopLink->getCMSLink($shopCms, null, null, $langId, $shopId);
             }
 
-            $allTitles[$channelKey] = $titles;
-            $allContents[$channelKey] = $contents;
-            $allLinks[$channelKey] = $links;
+            // Empty PHP arrays serialize as JSON []; the API expects {} (dict).
+            $allTitles[$channelKey] = !empty($titles) ? $titles : new stdClass();
+            $allContents[$channelKey] = !empty($contents) ? $contents : new stdClass();
+            $allLinks[$channelKey] = !empty($links) ? $links : new stdClass();
         }
 
         $data = [
