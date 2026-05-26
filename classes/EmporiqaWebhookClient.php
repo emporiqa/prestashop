@@ -2,8 +2,13 @@
 /**
  * Emporiqa Webhook Client
  *
- * Handles sending webhook events to the Emporiqa API. Events triggered by
- * PrestaShop hooks are queued and sent in a single batch on shutdown.
+ * Sends webhook events to the Emporiqa API from PrestaShop hooks. Always
+ * waits for the server response: we tried a fire-and-forget curl_multi
+ * pattern in 1.1.x but PHP-FPM tears the worker down before the kernel
+ * actually flushes the TCP send buffer, so the bytes never leave the
+ * machine. The bounded SYNC_HOOK_TIMEOUT (1.5 s, with a 500 ms handshake
+ * cap) keeps the merchant admin request from stalling if Emporiqa is
+ * slow or down.
  *
  * @author    Emporiqa
  * @copyright Emporiqa
@@ -17,8 +22,28 @@ class EmporiqaWebhookClient
 {
     const FLUSH_BATCH_SIZE = 50;
 
-    /** @var array Events queued for deferred sending */
+    /**
+     * Hard cap on the synchronous hook-driven send, in seconds. The merchant
+     * admin / front-controller request must never wait longer than this on
+     * a slow Emporiqa response. Paired with SYNC_HOOK_CONNECT_TIMEOUT_MS
+     * so a slow DNS/TLS handshake can't eat the whole window — see the
+     * connect-timeout branch in doRequest().
+     */
+    const SYNC_HOOK_TIMEOUT = 1.5;
+
+    /**
+     * Handshake budget (ms) for hook-driven sends. Tighter than the total
+     * window because under normal conditions Emporiqa's DNS+TLS resolves
+     * in <100ms; anything slower than this and we'd rather fail fast and
+     * let the merchant continue than burn their save latency on retries.
+     */
+    const SYNC_HOOK_CONNECT_TIMEOUT_MS = 500;
+
+    /** @var array Events queued for deferred sending. Retained for backwards-compat with anything still calling queueEvent + flushPendingEvents. */
     private $pendingEvents = [];
+
+    /** @var string|null Friendly message from the most recent failed sendBatchEvents call, or null after a success. */
+    private $lastError;
 
     /** @var EmporiqaChannelResolver */
     private $channelResolver;
@@ -29,9 +54,48 @@ class EmporiqaWebhookClient
     }
 
     /**
-     * Queue an event for deferred sending.
+     * Dispatch a single event from a PrestaShop hook handler.
      *
-     * @param string $type Event type (e.g. product.created)
+     * Sends synchronously with a SYNC_HOOK_TIMEOUT-second ceiling. Under
+     * normal conditions the round-trip is ~50-100 ms, so the merchant's
+     * save / checkout flow never feels it.
+     *
+     * @param string $type Event type (e.g. product.updated)
+     * @param array $data Event data payload
+     */
+    public function dispatchEvent($type, array $data)
+    {
+        if (!$this->isConfigured()) {
+            return;
+        }
+
+        $this->sendBatchEvents(
+            [['type' => $type, 'data' => $data]],
+            self::SYNC_HOOK_TIMEOUT
+        );
+    }
+
+    /**
+     * Dispatch many events from a hook handler. Used when a single hook
+     * needs to emit a parent + all its variations in one call.
+     *
+     * @param array<int, array{type: string, data: array}> $events
+     */
+    public function dispatchEvents(array $events)
+    {
+        if (empty($events) || !$this->isConfigured()) {
+            return;
+        }
+
+        $this->sendBatchEvents($events, self::SYNC_HOOK_TIMEOUT);
+    }
+
+    /**
+     * Legacy in-memory queue API. New code should call dispatchEvent()
+     * directly. Kept so any third-party module that hooked into our queue
+     * still works after upgrade.
+     *
+     * @param string $type Event type
      * @param array $data Event data payload
      */
     public function queueEvent($type, array $data)
@@ -43,9 +107,9 @@ class EmporiqaWebhookClient
     }
 
     /**
-     * Flush all pending events by sending them in batches.
-     * Called automatically via register_shutdown_function().
-     * Stops on first failure to avoid hanging when the API is down.
+     * Legacy flush API — no longer called from hook handlers in 1.2.0+.
+     * Retained for backwards-compat (e.g. CLI scripts that built batches).
+     * Sends batches via the non-blocking path when available.
      */
     public function flushPendingEvents()
     {
@@ -57,21 +121,24 @@ class EmporiqaWebhookClient
         $this->pendingEvents = [];
 
         foreach (array_chunk($events, self::FLUSH_BATCH_SIZE) as $batch) {
-            if (!$this->sendBatchEvents($batch)) {
-                $remaining = count($events) - count($batch);
-                if ($remaining > 0) {
-                    $this->log('Stopping flush: API unreachable. ' . $remaining . ' events dropped.');
-                }
-                break;
-            }
+            $this->dispatchEvents($batch);
         }
+    }
+
+    private function isConfigured()
+    {
+        $url = Configuration::get('EMPORIQA_WEBHOOK_URL');
+        $secret = Configuration::get('EMPORIQA_WEBHOOK_SECRET');
+        $storeId = Configuration::get('EMPORIQA_STORE_ID');
+
+        return !empty($url) && !empty($secret) && !empty($storeId);
     }
 
     /**
      * Send a batch of events immediately.
      *
      * @param array $events Array of event objects
-     * @param int $timeout Request timeout in seconds (default 10 for deferred, use 30 for sync)
+     * @param int|float $timeout Request timeout in seconds (default 10 for deferred, use 30 for sync)
      *
      * @return bool
      */
@@ -85,10 +152,56 @@ class EmporiqaWebhookClient
         $result = $this->doRequest($payload, false, $timeout);
 
         if (!$result['success']) {
-            $this->log('Webhook error: ' . ($result['error'] ?? 'Unknown'));
+            $this->lastError = $this->buildFriendlyError($result);
+            $this->log('Webhook error: ' . $this->lastError);
+        } else {
+            $this->lastError = null;
         }
 
         return $result['success'];
+    }
+
+    /**
+     * Friendly message from the most recent failed sendBatchEvents call.
+     * Cleared after a successful call. Used by user-triggered flows
+     * (Sync / Test Connection) to surface a human-readable reason in
+     * the admin response instead of a bare boolean false.
+     */
+    public function getLastError()
+    {
+        return $this->lastError;
+    }
+
+    /**
+     * Turn a doRequest() failure into a single human-readable line by
+     * pulling the most informative field out of the Django response
+     * (`error`, `detail`, `message`, `errors[0]`, plus `hint` when set).
+     * Public so the Test Connection and Sync buttons can surface the
+     * same wording the merchant sees on the admin page.
+     */
+    public function buildFriendlyError(array $result)
+    {
+        $body = isset($result['response']) && is_array($result['response']) ? $result['response'] : [];
+        $parts = [];
+        foreach (['error', 'detail', 'message'] as $key) {
+            if (!empty($body[$key]) && is_string($body[$key])) {
+                $parts[] = $body[$key];
+                break;
+            }
+        }
+        if (!empty($body['errors']) && is_array($body['errors'])) {
+            $first = reset($body['errors']);
+            $parts[] = is_string($first) ? $first : json_encode($first);
+        }
+        if (!empty($body['hint']) && is_string($body['hint'])) {
+            $parts[] = '(' . $body['hint'] . ')';
+        }
+        if (empty($parts)) {
+            $fallback = $result['error'] ?? 'Unknown error';
+            $parts[] = is_string($fallback) ? $fallback : json_encode($fallback);
+        }
+
+        return implode(' ', $parts);
     }
 
     /**
@@ -240,7 +353,7 @@ class EmporiqaWebhookClient
 
         return [
             'success' => false,
-            'message' => 'Connection failed: ' . ($result['error'] ?? 'Unknown error'),
+            'message' => 'Connection failed: ' . $this->buildFriendlyError($result),
         ];
     }
 
@@ -273,7 +386,7 @@ class EmporiqaWebhookClient
      *
      * @param array $payload Request payload
      * @param bool $dryRun Append ?dry_run=true to validate without storing
-     * @param int $timeout Total request timeout in seconds
+     * @param int|float $timeout Total request timeout in seconds
      *
      * @return array{success: bool, error: ?string, response: ?array}
      */
@@ -324,12 +437,25 @@ class EmporiqaWebhookClient
                 'response' => null,
             ];
         }
+        // Hook-driven (merchant-request) sends use a tight 500ms handshake
+        // budget so the bounded 1.5s total can't be wholly consumed by DNS
+        // or TLS variance. Admin-initiated sends (Sync, Test Connection)
+        // get the full 5s handshake cap — the merchant is actively waiting
+        // and minor handshake jitter on a one-off button click is fine.
+        $timeoutMs = (int) round($timeout * 1000);
+        $connectTimeoutMs = $timeoutMs <= 2000
+            ? self::SYNC_HOOK_CONNECT_TIMEOUT_MS
+            : 5000;
         curl_setopt_array($ch, [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $jsonPayload,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_CONNECTTIMEOUT_MS => $connectTimeoutMs,
+            CURLOPT_TIMEOUT_MS => $timeoutMs,
+            CURLOPT_NOSIGNAL => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
                 'X-Webhook-Signature: ' . $signature,

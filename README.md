@@ -1,8 +1,10 @@
 # Emporiqa Chat Assistant for PrestaShop
 
-The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8 and 9, an online salesperson that closes sales in your PrestaShop store. The module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and exposes endpoints for in-chat cart operations and order tracking.
+A shopper types "warm jacket under 100, waterproof" into your store. Your search returns everything with "jacket" in the title. The shopper scrolls, gives up, and leaves.
 
-The chatbot acts like an online salesperson. Shoppers describe what they need (or upload a photo of something they like), it finds matching products from your catalog, handles objections, answers questions from your CMS pages, compares items, and walks them to cart and checkout in 65+ languages.
+The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8 and 9 is an online salesperson that closes sales in your PrestaShop store. The module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and exposes endpoints for in-chat cart operations and order tracking.
+
+The chatbot acts like an online salesperson. Shoppers describe what they need (or upload a photo of something they like), it finds matching products from your catalog, handles objections like "too expensive" with alternatives instead of a discount, answers questions from your CMS pages, compares items, and walks them to cart and checkout in 65+ languages.
 
 [![Emporiqa chat widget recommending wireless headphones from the store's catalog, with a product card showing price, stock, and an add-to-cart button](docs/images/product-search.jpg)](https://demo.emporiqa.com)
 
@@ -10,8 +12,8 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 
 ## Features
 
-- **Closes sales**: Handles objections like "too expensive" by suggesting alternatives from your catalog, instead of giving up.
-- **Visual search**: Shoppers upload a photo in the widget; the chatbot matches it against your synced PrestaShop catalog (no extra config required).
+- **Closes sales**: Handles objections like "too expensive" by suggesting alternatives from your catalog, instead of a discount.
+- **Visual search**: Shoppers upload a photo in the widget; the chatbot describes it and finds matching products in your synced PrestaShop catalog (no extra config required).
 - **Brand-safe answers**: Every reply comes from your synced products and CMS pages, never from training data. Low-confidence questions hand off to your team.
 - **Product sync**: Real-time webhook sync of catalog products and combinations (variations). Parent/child relationships, attributes, prices, stock levels, and images are all included.
 - **Page sync**: CMS pages synced with per-language content so the assistant can answer support questions from your own content.
@@ -21,24 +23,27 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 - **Conversion tracking**: Captures chat session IDs at checkout and reports order completion events for revenue attribution.
 - **Multi-language**: Automatic language mapping. All translations are consolidated into single webhook payloads per entity.
 - **Multi-shop / multi-channel**: Auto-discovers shops and maps each to an Emporiqa channel using a slugified shop name (e.g. "My Shop" → `my-shop`). Products and pages assigned to multiple shops include per-channel links, prices, stock, and languages in a single payload. The channel is always passed to the widget and webhooks.
-- **Async delivery**: Webhooks dispatch via `register_shutdown_function` after the response is sent, with `fastcgi_finish_request` when available.
+- **One-click connect**: A signed handshake links your store to your Emporiqa account in one click. No Store ID or Connection Secret to copy across tabs. Manual paste stays available on HTTP sites.
+- **Bounded background delivery**: Product, page, and order events queue during the request and flush once at request shutdown, with a 1.5-second hard cap on the synchronous send. Admin saves and CSV imports complete locally; the webhook fires after the response is sent, and the merchant request can never wait longer than 1.5 seconds on a slow Emporiqa.
 - **Extensibility hooks**: 7 action hooks for developers to customize sync payloads, cancel syncs, or modify widget behavior.
 
 ## Requirements
 
-- PrestaShop 8.0 – 9.x
+- PrestaShop 8.0+ or 9.0+
 - PHP 7.4+
 - An [Emporiqa account](https://emporiqa.com/platform/create-store/). Sign up with no card; $25 of signup credit (~100 free conversations) auto-applied
 
 ## Installation
 
 1. Download the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/).
-2. In your PrestaShop back office, go to **Modules > Module Manager > Upload a module** and upload `emporiqa.zip`.
+2. In your PrestaShop back office, go to **Modules > Module Manager > Upload a Module** and upload `emporiqa.zip`.
 3. Click **Configure** on the Emporiqa module.
-4. In **Connection Settings**, paste your **Store ID** and **Connection Secret** from your [Emporiqa dashboard](https://emporiqa.com/platform/), then click **Save**.
-5. Copy the **Order Tracking URL** shown in Connection Settings and paste it into your Emporiqa dashboard under **Store Integration → Order Tracking**.
-6. Open the **Sync** tab, click **Test Connection** to verify, then run the initial product and page sync.
-7. The chat widget appears automatically on your storefront.
+4. Click **Connect to Emporiqa**. A new tab opens on emporiqa.com. Create a free account (no card required, $25 of signup credit) or sign in if you already have one, then pick the store you want to connect (or create a new one). The module is connected when you return.
+5. On the **Sync** tab, click **Send my catalog**. Products, pages, and combinations flow through; the widget appears on your storefront when the first product arrives.
+
+**On HTTP, or prefer to paste credentials yourself?** Expand **Edit credentials manually** on the Configure page. Paste a **Store ID** and **Connection Secret** from your Emporiqa dashboard under **Settings → Store Integration**. Both flows reach the same place.
+
+For order tracking, copy the **Order Tracking URL** shown on the Configure page and paste it into your Emporiqa dashboard under **Store Integration → Order Tracking** (the URL is also auto-derived by one-click connect on most setups).
 
 ## Configuration
 
@@ -46,10 +51,12 @@ All settings are managed from the module configuration page (**Modules > Emporiq
 
 **Connection Settings**
 
+The recommended path is **Connect to Emporiqa** (one-click handshake, no credentials to paste). For HTTP sites or manual setup, expand **Edit credentials manually**:
+
 | Setting | Description | Default |
 |---------|-------------|---------|
-| Store ID | Your Emporiqa store identifier | — |
-| Connection Secret | HMAC-SHA256 signing secret (from your Emporiqa dashboard) | — |
+| Store ID | Your Emporiqa store identifier (filled automatically by one-click connect) | (none) |
+| Connection Secret | HMAC-SHA256 signing secret (filled automatically by one-click connect) | (none) |
 | Order Tracking URL | Read-only endpoint to paste into your Emporiqa dashboard | auto-generated |
 
 **Advanced**
@@ -103,7 +110,7 @@ emporiqa/
 
 ### Webhook Sync
 
-When a product or CMS page is created, updated, or deleted in PrestaShop, the module queues a webhook event. Events are flushed in batches at the end of the PHP request using `register_shutdown_function` (with `fastcgi_finish_request` when available), so storefront response times are not affected.
+When a product or CMS page is created, updated, or deleted in PrestaShop, the module records the change in a per-request map and registers a single `register_shutdown_function`. At shutdown, the module reads the final DB state and emits one webhook per touched entity, with a 1.5-second hard cap on the HTTP call (500ms connect, 1500ms total). The shutdown timing means the merchant's admin or checkout response is sent first (under PHP-FPM via `fastcgi_finish_request` where available); the webhook fires afterwards, capped, so the merchant request can never wait longer than 1.5 seconds even if Emporiqa is unreachable.
 
 All webhooks are signed with HMAC-SHA256 via the `X-Webhook-Signature` header for payload integrity verification.
 
@@ -144,7 +151,9 @@ Developers can hook into the sync pipeline to customize payloads or cancel syncs
 
 ## Pricing
 
-The module is free. Emporiqa is pay-as-you-go: $0.25 per conversation, no monthly fee. Sign up with no card and get $25 of signup credit (~100 free conversations) auto-applied. The credit doesn't expire while your store is active. A $59/month spend cap is set by default and you can adjust it any time. Full details at [emporiqa.com/pricing/](https://emporiqa.com/pricing/).
+The module is free. Emporiqa is Pay-as-you-go: $0/month base + $0.25/conversation. New accounts get $25 of signup credit (about 100 conversations on us), no card required at signup. After the credit, the monthly cap defaults to $59 and is customer-adjustable from the billing dashboard. Enterprise option for catalogs over 30,000 products. Full pricing at [emporiqa.com/pricing/](https://emporiqa.com/pricing/).
+
+Emporiqa also works with Drupal Commerce, WooCommerce, Magento, Shopware, Sylius, and any store via webhook API. Same platform, same dashboard, same salesperson.
 
 ## Documentation & Support
 

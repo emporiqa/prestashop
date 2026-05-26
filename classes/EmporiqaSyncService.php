@@ -78,9 +78,14 @@ class EmporiqaSyncService
             if (!$dryRun) {
                 $result = $this->webhookClient->startSyncSession($sessionId, $ent);
                 if (!$result) {
+                    $reason = $this->webhookClient->getLastError();
+                    $msg = sprintf('Failed to start %s sync session.', $ent);
+                    if ($reason) {
+                        $msg .= ' ' . $reason;
+                    }
                     return [
                         'success' => false,
-                        'error' => sprintf('Failed to start %s sync session.', $ent),
+                        'error' => $msg,
                     ];
                 }
             }
@@ -140,10 +145,16 @@ class EmporiqaSyncService
 
         $result = $this->webhookClient->completeSyncSession($sessionId, $entity);
 
-        return [
-            'success' => $result,
-            'message' => $result ? 'Session completed.' : 'Failed to complete sync session.',
-        ];
+        if ($result) {
+            return ['success' => true, 'message' => 'Session completed.'];
+        }
+
+        $msg = 'Failed to complete sync session.';
+        $reason = $this->webhookClient->getLastError();
+        if ($reason) {
+            $msg .= ' ' . $reason;
+        }
+        return ['success' => false, 'message' => $msg, 'error' => $msg];
     }
 
     /**
@@ -220,20 +231,27 @@ class EmporiqaSyncService
         }
 
         $success = true;
+        $error = null;
         if (!$dryRun && !empty($events)) {
             foreach (array_chunk($events, EmporiqaWebhookClient::FLUSH_BATCH_SIZE) as $chunk) {
                 if (!$this->webhookClient->sendBatchEvents($chunk, 30)) {
                     $success = false;
+                    $error = $this->webhookClient->getLastError();
                     break;
                 }
             }
         }
 
-        return [
+        $out = [
             'success' => $success,
             'processed' => $processed,
             'events' => count($events),
         ];
+        if (!$success && $error) {
+            $out['error'] = $error;
+        }
+
+        return $out;
     }
 
     private function processPageBatch($sessionId, $page, $dryRun = false)
@@ -280,20 +298,27 @@ class EmporiqaSyncService
         }
 
         $success = true;
+        $error = null;
         if (!$dryRun && !empty($events)) {
             foreach (array_chunk($events, EmporiqaWebhookClient::FLUSH_BATCH_SIZE) as $chunk) {
                 if (!$this->webhookClient->sendBatchEvents($chunk, 30)) {
                     $success = false;
+                    $error = $this->webhookClient->getLastError();
                     break;
                 }
             }
         }
 
-        return [
+        $out = [
             'success' => $success,
             'processed' => $processed,
             'events' => count($events),
         ];
+        if (!$success && $error) {
+            $out['error'] = $error;
+        }
+
+        return $out;
     }
 
     private function generateUuid()

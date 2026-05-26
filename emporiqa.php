@@ -26,6 +26,9 @@ class Emporiqa extends Module
 {
     const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
 
+    /** Where one-click connect points the browser. Override via Configuration::updateValue('EMPORIQA_BASE_URL', ...) for staging. */
+    const DEFAULT_BASE_URL = 'https://emporiqa.com';
+
     /** @var EmporiqaWebhookClient|null */
     private $webhookClient;
 
@@ -41,27 +44,57 @@ class Emporiqa extends Module
     /** @var EmporiqaSyncService|null */
     private $syncService;
 
-    /** @var array Product IDs already queued this request (dedup) */
-    private $queuedProductIds = [];
+    /**
+     * @var array<int, string> productId => event type (e.g. "product.updated").
+     *
+     * Product changes are queued here during the request and flushed once
+     * at request shutdown so the webhook payload reflects the FINAL DB
+     * state, not the half-committed state visible to whichever hook fired
+     * first. Doubles as per-request dedup: a parent product touched by
+     * five different hooks in the same request emits one webhook.
+     */
+    private $pendingProductSyncs = [];
 
-    /** @var array Page IDs already queued this request (dedup) */
-    private $queuedPageIds = [];
+    /** @var array<int, true> productId => true. Same flush as syncs; delete wins on conflict. */
+    private $pendingProductDeletes = [];
 
-    /** @var bool Whether the shutdown flush has been registered */
-    private $shutdownRegistered = false;
+    /** @var bool true once we've registered the shutdown callback this request. */
+    private $shutdownFlushRegistered = false;
+
+    /**
+     * @var array<int, string> cmsId => event type.
+     *
+     * Same deferred-flush rationale as `$pendingProductSyncs`: CMS pages
+     * on PS9 also save across multiple CQRS commands; we wait for shutdown
+     * to read the final state.
+     */
+    private $pendingPageSyncs = [];
+
+    /** @var array<int, true> cmsId => true. Delete wins on conflict. */
+    private $pendingPageDeletes = [];
 
     public function __construct()
     {
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.1.1';
+        $this->version = '1.2.0';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
-        $this->ps_versions_compliancy = ['min' => '8.0.0', 'max' => '9.99.99'];
+        $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
         $this->bootstrap = true;
 
         parent::__construct();
+
+        // PS 9 occasionally leaves $this->id at 0 because its modules_cache
+        // is pre-populated by Module::loadUpgradeVersionList with only an
+        // 'upgrade' key (no id_module), which causes the cache-lookup
+        // branch of Module::__construct to skip the DB read. Without an id,
+        // Hook::registerHook silently inserts orphan rows (or fails) and
+        // every upgrade-time hook write breaks. Resolve from DB by name.
+        if (empty($this->id)) {
+            $this->id = (int) Module::getModuleIdByName($this->name);
+        }
 
         $this->displayName = $this->l('Emporiqa');
         $this->description = $this->l('Integrates PrestaShop with Emporiqa chat assistant.');
@@ -143,12 +176,84 @@ class Emporiqa extends Module
                 'visible' => true,
                 'icon' => 'chat',
             ],
+            [
+                // Provides a stable admin URL for the one-click connect
+                // handshake (?action=initiate / ?action=callback). Reached
+                // only via the Connect button on the module settings page.
+                // active=1 is REQUIRED — PS refuses to route to inactive
+                // tabs (causes "controller missing" or "invalid token").
+                // visible=false hides it from the back-office menu.
+                'name' => 'Emporiqa Connect',
+                'class_name' => 'AdminEmporiqaConnect',
+                'route_name' => '',
+                'parent_class_name' => 'AdminEmporiqa',
+                'visible' => false,
+                'active' => true,
+                'icon' => '',
+            ],
         ];
+    }
+
+    /**
+     * Register any tabs declared in getTabs() that aren't already in
+     * ps_tab. Idempotent — safe to call from install() and from upgrade
+     * scripts that add new tabs in later versions.
+     *
+     * PS 9 calls this automatically on fresh install via the
+     * ModuleTabRegister Symfony service, but in-place upgrades have no
+     * such hook, so upgrade scripts that ship a new tab must call this
+     * explicitly.
+     */
+    public function installTabs()
+    {
+        foreach ($this->getTabs() as $tabData) {
+            if (Tab::getIdFromClassName($tabData['class_name'])) {
+                continue;
+            }
+
+            $tab = new Tab();
+            $tab->class_name = $tabData['class_name'];
+            $tab->module = $this->name;
+            $tab->id_parent = empty($tabData['parent_class_name'])
+                ? 0
+                : (int) Tab::getIdFromClassName($tabData['parent_class_name']);
+            $tab->active = isset($tabData['active']) ? (bool) $tabData['active'] : true;
+            $tab->icon = $tabData['icon'] ?? '';
+            $tab->route_name = $tabData['route_name'] ?? '';
+
+            $tab->name = [];
+            foreach (Language::getLanguages(false) as $lang) {
+                $tab->name[(int) $lang['id_lang']] = (string) $tabData['name'];
+            }
+
+            if (!$tab->add()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function install()
     {
-        return parent::install()
+        // Multi-shop: the chat assistant is a site-wide feature, not a
+        // per-shop one. Force the install context to "all shops" before
+        // parent::install() so the merchant gets the widget on every
+        // shop instead of only the one they happened to be viewing
+        // when they hit Install. Without this, hooks register for all
+        // shops but ps_module_shop only carries a row for the active
+        // shop, so the widget silently doesn't render on the others.
+        // The merchant can still disable per-shop afterwards via
+        // Module Manager -- opt-out is the right default here.
+        $originalContext = null;
+        $originalShopId = null;
+        if (Shop::isFeatureActive()) {
+            $originalContext = Shop::getContext();
+            $originalShopId = Shop::getContextShopID();
+            Shop::setContext(Shop::CONTEXT_ALL);
+        }
+
+        $result = parent::install()
             && $this->registerHook('displayHeader')
             && $this->registerHook('actionProductSave')
             && $this->registerHook('actionProductDelete')
@@ -161,8 +266,32 @@ class Emporiqa extends Module
             && $this->registerHook('actionValidateOrder')
             && $this->registerHook('actionOrderStatusPostUpdate')
             && $this->registerHook('actionUpdateQuantity')
+            && $this->registerHook('actionObjectSpecificPriceAddAfter')
+            && $this->registerHook('actionObjectSpecificPriceUpdateAfter')
+            && $this->registerHook('actionObjectSpecificPriceDeleteAfter')
+            && $this->registerHook('actionObjectCurrencyUpdateAfter')
+            && $this->registerHook('actionObjectTaxUpdateAfter')
+            && $this->registerHook('actionObjectTaxRulesGroupUpdateAfter')
+            && $this->registerHook('actionObjectCartRuleAddAfter')
+            && $this->registerHook('actionObjectCartRuleUpdateAfter')
+            && $this->registerHook('actionObjectCartRuleDeleteAfter')
+            && $this->registerHook('actionProductOutOfStock')
+            && $this->registerHook('actionObjectCategoryUpdateAfter')
+            && $this->registerHook('actionObjectCategoryDeleteAfter')
+            && $this->registerHook('actionObjectManufacturerUpdateAfter')
+            && $this->registerHook('actionObjectManufacturerDeleteAfter')
+            && $this->registerHook('actionObjectImageAddAfter')
+            && $this->registerHook('actionObjectImageUpdateAfter')
+            && $this->registerHook('actionObjectImageDeleteAfter')
+            && $this->registerHook('actionObjectLanguageAddAfter')
             && $this->installConfig()
             && $this->installDb();
+
+        if ($originalContext !== null) {
+            Shop::setContext($originalContext, $originalShopId);
+        }
+
+        return $result;
     }
 
     public function uninstall()
@@ -202,7 +331,13 @@ class Emporiqa extends Module
             'EMPORIQA_SYNC_PRODUCTS', 'EMPORIQA_SYNC_PAGES', 'EMPORIQA_ENABLED_LANGUAGES',
             'EMPORIQA_ORDER_TRACKING', 'EMPORIQA_ORDER_TRACKING_EMAIL', 'EMPORIQA_CART_ENABLED',
             'EMPORIQA_BATCH_SIZE',
+            // One-click connect transient (1.2.0+) — cleared on uninstall.
+            'EMPORIQA_CONNECT_LAST_ERROR',
         ];
+        // EMPORIQA_BASE_URL is deliberately NOT cleared on uninstall:
+        // it's a staging/regional override set by the sysadmin and should
+        // survive uninstall + reinstall cycles. Never set in production
+        // (controller falls back to DEFAULT_BASE_URL when unset).
         if (Shop::isFeatureActive() && Shop::getContext() !== Shop::CONTEXT_ALL) {
             foreach ($keys as $key) {
                 Configuration::deleteFromContext($key);
@@ -233,6 +368,16 @@ class Emporiqa extends Module
             PRIMARY KEY (`id_order`)
         ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;';
 
+        // One-click connect: stores the PKCE verifier keyed by sha256(state).
+        // Rows are atomically consumed on callback and auto-expire after 5 min.
+        $sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'emporiqa_connect_nonce` (
+            `state_hash` CHAR(64) NOT NULL,
+            `verifier` VARCHAR(128) NOT NULL,
+            `created_at` INT(10) UNSIGNED NOT NULL,
+            PRIMARY KEY (`state_hash`),
+            KEY `idx_created_at` (`created_at`)
+        ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;';
+
         foreach ($sql as $query) {
             if (!Db::getInstance()->execute($query)) {
                 return false;
@@ -259,6 +404,7 @@ class Emporiqa extends Module
 
         Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'emporiqa_order_session`');
         Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'emporiqa_order_tracked`');
+        Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'emporiqa_connect_nonce`');
 
         return true;
     }
@@ -347,11 +493,33 @@ class Emporiqa extends Module
         unset($lang);
         $enabledLanguages = json_decode(Configuration::get('EMPORIQA_ENABLED_LANGUAGES'), true) ?: EmporiqaLanguageHelper::getEnabledLanguages();
 
+        $secretSet = !empty(Configuration::get('EMPORIQA_WEBHOOK_SECRET'));
+        $storeIdSet = !empty(Configuration::get('EMPORIQA_STORE_ID'));
+        $lastError = Configuration::get('EMPORIQA_CONNECT_LAST_ERROR');
+
+        if ($secretSet && $storeIdSet) {
+            $connectState = 'connected';
+        } elseif (!empty($lastError)) {
+            $connectState = 'error';
+        } else {
+            $connectState = 'not_connected';
+        }
+        // Clear the one-shot error so it doesn't follow the merchant around.
+        if ($connectState === 'error') {
+            Configuration::deleteByName('EMPORIQA_CONNECT_LAST_ERROR');
+        }
+
+        $justConnected = (int) Tools::getValue('emporiqa_connected') === 1;
+        $connectInitiateUrl = $this->context->link->getAdminLink('AdminEmporiqaConnect', true, [], [
+            'action' => 'initiate',
+        ]);
+
         $this->context->smarty->assign([
             'emporiqa_module_dir' => $this->_path,
+            'emporiqa_module_version' => $this->version,
             'emporiqa_store_id' => Configuration::get('EMPORIQA_STORE_ID'),
             'emporiqa_webhook_url' => Configuration::get('EMPORIQA_WEBHOOK_URL'),
-            'emporiqa_webhook_secret_set' => !empty(Configuration::get('EMPORIQA_WEBHOOK_SECRET')),
+            'emporiqa_webhook_secret_set' => $secretSet,
             'emporiqa_sync_products' => Configuration::get('EMPORIQA_SYNC_PRODUCTS'),
             'emporiqa_sync_pages' => Configuration::get('EMPORIQA_SYNC_PAGES'),
             'emporiqa_enabled_languages' => $enabledLanguages,
@@ -363,6 +531,12 @@ class Emporiqa extends Module
             'emporiqa_platform_base_url' => $this->getPlatformBaseUrl(),
             'emporiqa_order_tracking_url' => $this->context->link->getModuleLink('emporiqa', 'ordertracking'),
             'emporiqa_batch_size' => (int) Configuration::get('EMPORIQA_BATCH_SIZE') ?: 25,
+            // One-click connect (1.2.0+)
+            'emporiqa_connect_state' => $connectState,
+            'emporiqa_connect_initiate_url' => $connectInitiateUrl,
+            'emporiqa_connect_last_error' => $lastError ?: '',
+            'emporiqa_just_connected' => $justConnected,
+            'emporiqa_https_enabled' => (bool) Configuration::get('PS_SSL_ENABLED'),
         ]);
 
         $this->context->controller->addCSS($this->_path . 'views/css/admin.css');
@@ -517,35 +691,17 @@ class Emporiqa extends Module
             return;
         }
 
-        if (isset($this->queuedProductIds[$productId])) {
-            return;
-        }
-        $this->queuedProductIds[$productId] = true;
-
-        $product = (isset($params['product']) && $params['product'] instanceof Product && (int) $params['product']->id === $productId)
-            ? $params['product']
-            : new Product($productId);
-        if (!Validate::isLoadedObject($product)) {
-            return;
-        }
-
-        if (!$product->active) {
-            $this->queueProductDelete($productId);
-            return;
-        }
-
-        $eventType = 'product.updated';
-
-        $shouldSync = true;
-        $this->dispatchSyncHook('actionEmporiqaShouldSyncProduct', [
-            'product' => $product,
-            'event_type' => $eventType,
-        ], $shouldSync);
-        if (!$shouldSync) {
-            return;
-        }
-
-        $this->queueProductEvent($product, $eventType);
+        // Defer EVERY decision -- active check, shouldSync gate, format,
+        // dispatch -- to the shutdown flush. PS9's CQRS save fires this
+        // hook multiple times during a single user save, often before
+        // later sub-commands have set fields like `active=1`. Reading
+        // `$product->active` at hook time can see a half-committed
+        // snapshot where a brand-new product still has `active=0`,
+        // which would (and did, May 25 2026 demo) flip the queue to
+        // delete -- making the create then "delete wins" at flush and
+        // never landing in Qdrant. `dispatchProductSync` reloads at
+        // shutdown and routes inactive products to delete correctly.
+        $this->queueProductEvent($productId, 'product.updated');
     }
 
     public function hookActionProductDelete($params)
@@ -567,10 +723,9 @@ class Emporiqa extends Module
         }
 
         $productId = isset($params['id_product']) ? (int) $params['id_product'] : 0;
-        if (!$productId || isset($this->queuedProductIds[$productId])) {
+        if (!$productId || isset($this->pendingProductSyncs[$productId])) {
             return;
         }
-        $this->queuedProductIds[$productId] = true;
 
         $product = new Product($productId);
         if (!Validate::isLoadedObject($product) || !$product->active) {
@@ -609,8 +764,7 @@ class Emporiqa extends Module
         $productId = (int) $object->id_product;
         $product = new Product($productId);
         if (Validate::isLoadedObject($product) && $product->active) {
-            if (!isset($this->queuedProductIds[$productId])) {
-                $this->queuedProductIds[$productId] = true;
+            if (!isset($this->pendingProductSyncs[$productId])) {
                 $this->queueProductEvent($product, 'product.updated');
             }
         }
@@ -630,21 +784,276 @@ class Emporiqa extends Module
         // Send delete event for the removed variation
         if ($this->isWebhookConfigured() && isset($object->id)) {
             $client = $this->getWebhookClient();
-            $client->queueEvent('product.deleted', [
+            $client->dispatchEvent('product.deleted', [
                 'identification_number' => 'variation-' . (int) $object->id,
             ]);
-            $this->ensureShutdownFlush();
         }
 
         // Re-sync the parent product
         $productId = (int) $object->id_product;
         $product = new Product($productId);
         if (Validate::isLoadedObject($product) && $product->active) {
-            if (!isset($this->queuedProductIds[$productId])) {
-                $this->queuedProductIds[$productId] = true;
+            if (!isset($this->pendingProductSyncs[$productId])) {
                 $this->queueProductEvent($product, 'product.updated');
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // SpecificPrice Hooks (catalog promos / scheduled discounts / group prices)
+    // -------------------------------------------------------------------------
+    //
+    // SpecificPrice rows can change the effective price WITHOUT touching the
+    // product itself (catalog rules, scheduled promos, per-group reductions),
+    // so actionProductSave never fires and our cached price stays stale.
+    // These three hooks bridge that gap by re-emitting the affected product
+    // through the same path hookActionProductSave uses.
+
+    public function hookActionObjectSpecificPriceAddAfter($params)
+    {
+        $this->handleSpecificPriceChange($params);
+    }
+
+    public function hookActionObjectSpecificPriceUpdateAfter($params)
+    {
+        $this->handleSpecificPriceChange($params);
+    }
+
+    public function hookActionObjectSpecificPriceDeleteAfter($params)
+    {
+        $this->handleSpecificPriceChange($params);
+    }
+
+    private function handleSpecificPriceChange($params)
+    {
+        if (!Configuration::get('EMPORIQA_SYNC_PRODUCTS')) {
+            return;
+        }
+
+        $object = isset($params['object']) ? $params['object'] : null;
+        if (!$object || !isset($object->id_product)) {
+            return;
+        }
+
+        $productId = (int) $object->id_product;
+        if ($productId <= 0) {
+            // id_product=0 means a catalog-wide rule (every product).
+            // Re-syncing the whole catalog from a hook would block the admin
+            // request, so we log and skip — the merchant can trigger a full
+            // sync from the admin tab when needed.
+            PrestaShopLogger::addLog(
+                '[Emporiqa] Catalog-wide SpecificPrice change detected (id_product=0); '
+                . 'skipped automatic re-sync. Run a manual sync from the Emporiqa admin tab to refresh prices.',
+                1,
+                null,
+                'Emporiqa'
+            );
+            return;
+        }
+
+        if (isset($this->pendingProductSyncs[$productId])) {
+            return;
+        }
+
+        $product = new Product($productId);
+        if (!Validate::isLoadedObject($product) || !$product->active) {
+            return;
+        }
+
+        $this->queueProductEvent($product, 'product.updated');
+    }
+
+    // -------------------------------------------------------------------------
+    // Catalog-wide Price Refresh Hooks (currency / tax updates)
+    // -------------------------------------------------------------------------
+    //
+    // Currency exchange-rate refreshes and tax-rate / tax-rules-group edits
+    // change the effective price of MANY products at once without touching
+    // any individual product row. Re-syncing per-product here would be
+    // wasteful (and impossible — there is no single product to target),
+    // so these handlers fall through to the same "catalog-wide" path the
+    // SpecificPrice handler uses for id_product=0: log an actionable
+    // warning and let the merchant trigger a full sync from the admin tab.
+
+    public function hookActionObjectCurrencyUpdateAfter($params)
+    {
+        $this->handleFullCatalogResync('currency_update');
+    }
+
+    public function hookActionObjectTaxUpdateAfter($params)
+    {
+        $this->handleFullCatalogResync('tax_rate_update');
+    }
+
+    public function hookActionObjectTaxRulesGroupUpdateAfter($params)
+    {
+        $this->handleFullCatalogResync('tax_group_update');
+    }
+
+    private function handleFullCatalogResync($reason)
+    {
+        if (!Configuration::get('EMPORIQA_SYNC_PRODUCTS')) {
+            return;
+        }
+
+        // No async queue exists in-module; running a full catalog re-sync
+        // synchronously from a hook would block the admin request. Mirror
+        // the SpecificPrice id_product=0 path: log and let the merchant
+        // trigger a manual sync from the Emporiqa admin tab.
+        PrestaShopLogger::addLog(
+            '[Emporiqa] Catalog-wide price-affecting change detected (' . (string) $reason . '); '
+            . 'skipped automatic re-sync. Run a manual sync from the Emporiqa admin tab to refresh prices.',
+            1,
+            null,
+            'Emporiqa'
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Cart Rule Hooks (1.2.0)
+    // -------------------------------------------------------------------------
+    //
+    // Cart rules / vouchers can apply category- or catalog-wide reductions
+    // that change effective prices for many products without touching any
+    // single product row. Fall through to the same catalog-wide path the
+    // currency / tax handlers use: log and let the merchant trigger a manual
+    // sync when ready.
+
+    public function hookActionObjectCartRuleAddAfter($params)
+    {
+        $this->handleFullCatalogResync('cart_rule_add');
+    }
+
+    public function hookActionObjectCartRuleUpdateAfter($params)
+    {
+        $this->handleFullCatalogResync('cart_rule_update');
+    }
+
+    public function hookActionObjectCartRuleDeleteAfter($params)
+    {
+        $this->handleFullCatalogResync('cart_rule_delete');
+    }
+
+    // -------------------------------------------------------------------------
+    // Category / Manufacturer Hooks (1.2.0)
+    // -------------------------------------------------------------------------
+    //
+    // Category rename/delete affects every product in that category (and
+    // breadcrumbs). Manufacturer rename/delete affects the brand text on
+    // every product carrying that manufacturer. Both fall through to the
+    // catalog-wide path.
+
+    public function hookActionObjectCategoryUpdateAfter($params)
+    {
+        $this->handleFullCatalogResync('category_update');
+    }
+
+    public function hookActionObjectCategoryDeleteAfter($params)
+    {
+        $this->handleFullCatalogResync('category_delete');
+    }
+
+    public function hookActionObjectManufacturerUpdateAfter($params)
+    {
+        $this->handleFullCatalogResync('manufacturer_update');
+    }
+
+    public function hookActionObjectManufacturerDeleteAfter($params)
+    {
+        $this->handleFullCatalogResync('manufacturer_delete');
+    }
+
+    // -------------------------------------------------------------------------
+    // Language Hook (1.2.0)
+    // -------------------------------------------------------------------------
+    //
+    // A new language enabled after the initial sync means existing products
+    // gain a new locale's title/description that Emporiqa hasn't indexed yet.
+    // Catalog-wide re-sync needed.
+
+    public function hookActionObjectLanguageAddAfter($params)
+    {
+        $this->handleFullCatalogResync('language_add');
+    }
+
+    // -------------------------------------------------------------------------
+    // Product Out-of-Stock Hook (1.2.0)
+    // -------------------------------------------------------------------------
+    //
+    // Stock transitions (in→out, out→in) change availability shown in the
+    // widget. actionUpdateQuantity covers most cases, but actionProductOutOfStock
+    // fires on the boundary transition specifically and is the safer signal.
+    // Re-sync just the affected product id.
+
+    public function hookActionProductOutOfStock($params)
+    {
+        if (!Configuration::get('EMPORIQA_SYNC_PRODUCTS')) {
+            return;
+        }
+
+        $product = isset($params['product']) ? $params['product'] : null;
+        $productId = ($product instanceof Product) ? (int) $product->id : 0;
+        if (!$productId && isset($params['id_product'])) {
+            $productId = (int) $params['id_product'];
+        }
+        if (!$productId || isset($this->pendingProductSyncs[$productId])) {
+            return;
+        }
+
+        if (!($product instanceof Product) || (int) $product->id !== $productId) {
+            $product = new Product($productId);
+        }
+        if (!Validate::isLoadedObject($product) || !$product->active) {
+            return;
+        }
+
+        $this->queueProductEvent($product, 'product.updated');
+    }
+
+    // -------------------------------------------------------------------------
+    // Image Hooks (1.2.0)
+    // -------------------------------------------------------------------------
+    //
+    // Product images add/update/delete change widget thumbnails. Image objects
+    // expose id_product, so we can scope the re-sync to a single product.
+
+    public function hookActionObjectImageAddAfter($params)
+    {
+        $this->handleImageChange($params);
+    }
+
+    public function hookActionObjectImageUpdateAfter($params)
+    {
+        $this->handleImageChange($params);
+    }
+
+    public function hookActionObjectImageDeleteAfter($params)
+    {
+        $this->handleImageChange($params);
+    }
+
+    private function handleImageChange($params)
+    {
+        if (!Configuration::get('EMPORIQA_SYNC_PRODUCTS')) {
+            return;
+        }
+
+        $object = isset($params['object']) ? $params['object'] : null;
+        if (!$object || !isset($object->id_product)) {
+            return;
+        }
+
+        $productId = (int) $object->id_product;
+        if ($productId <= 0 || isset($this->pendingProductSyncs[$productId])) {
+            return;
+        }
+
+        $product = new Product($productId);
+        if (!Validate::isLoadedObject($product) || !$product->active) {
+            return;
+        }
+
+        $this->queueProductEvent($product, 'product.updated');
     }
 
     // -------------------------------------------------------------------------
@@ -672,7 +1081,8 @@ class Emporiqa extends Module
             return;
         }
 
-        $this->queuePageDelete((int) $object->id);
+        $this->pendingPageDeletes[(int) $object->id] = true;
+        $this->registerShutdownFlush();
     }
 
     private function handleCmsChange($params, $eventType)
@@ -686,32 +1096,11 @@ class Emporiqa extends Module
             return;
         }
 
-        $cmsId = (int) $object->id;
-        if (isset($this->queuedPageIds[$cmsId])) {
-            return;
-        }
-        $this->queuedPageIds[$cmsId] = true;
-
-        $cms = new CMS($cmsId);
-        if (!Validate::isLoadedObject($cms)) {
-            return;
-        }
-
-        if (!$cms->active) {
-            $this->queuePageDelete($cmsId);
-            return;
-        }
-
-        $shouldSync = true;
-        $this->dispatchSyncHook('actionEmporiqaShouldSyncPage', [
-            'page' => $cms,
-            'event_type' => $eventType,
-        ], $shouldSync);
-        if (!$shouldSync) {
-            return;
-        }
-
-        $this->queuePageEvent($cms, $eventType);
+        // Just queue the id + event type. The fresh DB load, active /
+        // shouldSync checks, and dispatch all happen at shutdown so we
+        // see the final settled state instead of a half-committed one.
+        $this->pendingPageSyncs[(int) $object->id] = $eventType;
+        $this->registerShutdownFlush();
     }
 
     // -------------------------------------------------------------------------
@@ -749,8 +1138,7 @@ class Emporiqa extends Module
             ]);
 
             $client = $this->getWebhookClient();
-            $client->queueEvent('order.completed', $eventData);
-            $this->ensureShutdownFlush();
+            $client->dispatchEvent('order.completed', $eventData);
 
             Db::getInstance()->insert('emporiqa_order_tracked', [
                 'id_order' => (int) $order->id,
@@ -838,25 +1226,163 @@ class Emporiqa extends Module
         ]);
 
         $client = $this->getWebhookClient();
-        $client->queueEvent('order.completed', $eventData);
-        $this->ensureShutdownFlush();
+        $client->dispatchEvent('order.completed', $eventData);
     }
 
     // -------------------------------------------------------------------------
     // Event Queuing (deferred flush)
     // -------------------------------------------------------------------------
 
-    private function queueProductEvent(Product $product, $eventType)
+    /**
+     * Queue a product sync for end-of-request flush.
+     *
+     * Why we defer: PrestaShop 9's admin product editor dispatches a single
+     * "Save" click as MULTIPLE CQRS commands (basic info, translations,
+     * categories, SEO, ...). `Product::update()` -- and therefore
+     * `actionProductSave` -- is fired from EACH of those handlers, often
+     * before the next handler has committed. Dispatching the webhook on
+     * the first fire ships a half-committed snapshot (e.g. updated price
+     * but stale description).
+     *
+     * Deferring to `register_shutdown_function`:
+     *   1. Coalesces all hook fires for the same product into a single
+     *      webhook (natural dedup via the keyed pendingProductSyncs array)
+     *   2. Loads the product FRESH from the DB at flush time, after every
+     *      CQRS handler in this request has committed
+     *   3. Under PHP-FPM the response is already on the wire by the time
+     *      shutdown runs, so the merchant's "Save" is never blocked on
+     *      our webhook -- effectively async without needing a real queue
+     *   4. Same path works under mod_php (just blocks the response for an
+     *      extra ~50-100 ms in that legacy hosting scenario)
+     *
+     * The hook handler only needs the productId + intended event type;
+     * the Product object passed in `$params['product']` is intentionally
+     * ignored at flush time -- it would carry the pre-commit snapshot we
+     * are trying to avoid.
+     */
+    /**
+     * Queue a product for sync at request shutdown. Accepts either a
+     * Product object (for hooks that already loaded one to make local
+     * decisions) or a bare productId int (for hooks that defer every
+     * decision to shutdown). The object is intentionally not stored --
+     * we re-load at flush time to see the final post-CQRS state.
+     */
+    private function queueProductEvent($product, $eventType)
     {
         if (!$this->isWebhookConfigured()) {
             return;
         }
+        $productId = $product instanceof Product ? (int) $product->id : (int) $product;
+        if (!$productId) {
+            return;
+        }
+        $this->pendingProductSyncs[$productId] = $eventType;
+        $this->registerShutdownFlush();
+    }
 
+    private function queueProductDelete($productId)
+    {
+        if (!$this->isWebhookConfigured()) {
+            return;
+        }
+        $this->pendingProductDeletes[(int) $productId] = true;
+        $this->registerShutdownFlush();
+    }
+
+    private function registerShutdownFlush()
+    {
+        if ($this->shutdownFlushRegistered) {
+            return;
+        }
+        $this->shutdownFlushRegistered = true;
+        register_shutdown_function([$this, 'flushPendingProductSyncs']);
+    }
+
+    /**
+     * Flush queued product + page syncs/deletes. Public so PHP's
+     * register_shutdown_function can call it; also safe to call directly
+     * from CLI scripts that want to force-flush before exiting.
+     *
+     * Runs AFTER the HTTP response has been sent (PHP-FPM) and AFTER
+     * every CQRS handler in this request has committed -- so the fresh
+     * `new Product($id)` / `new CMS($id)` loads see the final settled
+     * state. Each entity is processed once even if many hook fires queued
+     * it.
+     */
+    public function flushPendingProductSyncs()
+    {
+        if (
+            empty($this->pendingProductSyncs)
+            && empty($this->pendingProductDeletes)
+            && empty($this->pendingPageSyncs)
+            && empty($this->pendingPageDeletes)
+        ) {
+            return;
+        }
+
+        // Snapshot + clear so re-entrant hook fires triggered during
+        // dispatch (e.g. by actionEmporiqaFormatProduct subscribers)
+        // queue into a fresh batch instead of mutating the one we're
+        // iterating.
+        $productSyncs = $this->pendingProductSyncs;
+        $productDeletes = $this->pendingProductDeletes;
+        $pageSyncs = $this->pendingPageSyncs;
+        $pageDeletes = $this->pendingPageDeletes;
+        $this->pendingProductSyncs = [];
+        $this->pendingProductDeletes = [];
+        $this->pendingPageSyncs = [];
+        $this->pendingPageDeletes = [];
+
+        foreach ($productSyncs as $productId => $eventType) {
+            // Delete takes precedence over update when both were queued
+            // (e.g. soft-delete sequence: update then deactivate).
+            if (isset($productDeletes[$productId])) {
+                continue;
+            }
+            $this->dispatchProductSync((int) $productId, (string) $eventType);
+        }
+        foreach (array_keys($productDeletes) as $productId) {
+            $this->dispatchProductDelete((int) $productId);
+        }
+
+        foreach ($pageSyncs as $cmsId => $eventType) {
+            if (isset($pageDeletes[$cmsId])) {
+                continue;
+            }
+            $this->dispatchPageSync((int) $cmsId, (string) $eventType);
+        }
+        foreach (array_keys($pageDeletes) as $cmsId) {
+            $this->dispatchPageDelete((int) $cmsId);
+        }
+    }
+
+    private function dispatchProductSync($productId, $eventType)
+    {
         try {
+            // Fresh DB load -- the hook params' Product object may carry
+            // a pre-commit snapshot from PS9's multi-step CQRS save.
+            $product = new Product($productId);
+            if (!Validate::isLoadedObject($product)) {
+                return;
+            }
+            if (!$product->active) {
+                $this->dispatchProductDelete($productId);
+                return;
+            }
+
+            $shouldSync = true;
+            $this->dispatchSyncHook('actionEmporiqaShouldSyncProduct', [
+                'product' => $product,
+                'event_type' => $eventType,
+            ], $shouldSync);
+            if (!$shouldSync) {
+                return;
+            }
+
             $client = $this->getWebhookClient();
             $formatted = $this->getProductFormatter()->format($product);
 
-            // Allow other modules to modify each product/variation payload
+            // Let other modules tweak each parent/variation payload.
             foreach ($formatted as &$item) {
                 Hook::exec('actionEmporiqaFormatProduct', [
                     'data' => &$item,
@@ -866,66 +1392,95 @@ class Emporiqa extends Module
             }
             unset($item);
 
+            // One request carries the parent + every variation.
+            $events = [];
             foreach ($formatted as $item) {
-                $client->queueEvent($eventType, $item);
+                $events[] = ['type' => $eventType, 'data' => $item];
             }
-            $this->ensureShutdownFlush();
+            $client->dispatchEvents($events);
         } catch (\Exception $e) {
             PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
         }
     }
 
-    private function queueProductDelete($productId)
+    private function dispatchProductDelete($productId)
     {
-        if (!$this->isWebhookConfigured()) {
-            return;
-        }
-        $client = $this->getWebhookClient();
+        try {
+            $client = $this->getWebhookClient();
 
-        $client->queueEvent('product.deleted', [
-            'identification_number' => 'product-' . $productId,
-        ]);
+            $events = [[
+                'type' => 'product.deleted',
+                'data' => ['identification_number' => 'product-' . $productId],
+            ]];
 
-        $combinations = Product::getProductAttributesIds($productId);
-        if ($combinations) {
-            foreach ($combinations as $combo) {
-                $client->queueEvent('product.deleted', [
-                    'identification_number' => 'variation-' . $combo['id_product_attribute'],
-                ]);
+            $combinations = Product::getProductAttributesIds($productId);
+            if ($combinations) {
+                foreach ($combinations as $combo) {
+                    $events[] = [
+                        'type' => 'product.deleted',
+                        'data' => ['identification_number' => 'variation-' . $combo['id_product_attribute']],
+                    ];
+                }
             }
-        }
 
-        $this->ensureShutdownFlush();
+            $client->dispatchEvents($events);
+        } catch (\Exception $e) {
+            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
+        }
     }
 
-    private function queuePageEvent(CMS $cms, $eventType)
+    private function dispatchPageSync($cmsId, $eventType)
     {
         if (!$this->isWebhookConfigured()) {
             return;
         }
-        $client = $this->getWebhookClient();
-        $formatted = $this->getPageFormatter()->format($cms);
-        if (!empty($formatted)) {
+        try {
+            // Fresh DB load so we see the final post-CQRS state.
+            $cms = new CMS($cmsId);
+            if (!Validate::isLoadedObject($cms)) {
+                return;
+            }
+            if (!$cms->active) {
+                $this->dispatchPageDelete($cmsId);
+                return;
+            }
+
+            $shouldSync = true;
+            $this->dispatchSyncHook('actionEmporiqaShouldSyncPage', [
+                'page' => $cms,
+                'event_type' => $eventType,
+            ], $shouldSync);
+            if (!$shouldSync) {
+                return;
+            }
+
+            $formatted = $this->getPageFormatter()->format($cms);
+            if (empty($formatted)) {
+                return;
+            }
             Hook::exec('actionEmporiqaFormatPage', [
                 'data' => &$formatted,
                 'page' => $cms,
                 'event_type' => $eventType,
             ]);
-            $client->queueEvent($eventType, $formatted);
+            $this->getWebhookClient()->dispatchEvent($eventType, $formatted);
+        } catch (\Exception $e) {
+            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
         }
-        $this->ensureShutdownFlush();
     }
 
-    private function queuePageDelete($cmsId)
+    private function dispatchPageDelete($cmsId)
     {
         if (!$this->isWebhookConfigured()) {
             return;
         }
-        $client = $this->getWebhookClient();
-        $client->queueEvent('page.deleted', [
-            'identification_number' => 'page-' . $cmsId,
-        ]);
-        $this->ensureShutdownFlush();
+        try {
+            $this->getWebhookClient()->dispatchEvent('page.deleted', [
+                'identification_number' => 'page-' . $cmsId,
+            ]);
+        } catch (\Exception $e) {
+            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
+        }
     }
 
     private function getConfigureUrl()
@@ -1043,19 +1598,8 @@ class Emporiqa extends Module
         Hook::exec($hookName, $hookParams);
     }
 
-    private function ensureShutdownFlush()
-    {
-        if ($this->shutdownRegistered) {
-            return;
-        }
-
-        $client = $this->getWebhookClient();
-        register_shutdown_function(function () use ($client) {
-            if (function_exists('fastcgi_finish_request')) {
-                fastcgi_finish_request();
-            }
-            $client->flushPendingEvents();
-        });
-        $this->shutdownRegistered = true;
-    }
+    // ensureShutdownFlush() removed in 1.2.0 — every hook now dispatches
+    // immediately via EmporiqaWebhookClient::dispatchEvent (synchronous
+    // send with a 1.5 s total / 500 ms handshake ceiling). The merchant's
+    // admin save / checkout request never waits longer than that.
 }

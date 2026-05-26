@@ -6,6 +6,43 @@
  * @license   AFL-3.0
  *}
 
+{if $emporiqa_just_connected}
+    <div class="panel emporiqa-welcome-card">
+        <h3 class="emporiqa-welcome-h3"><i class="icon-check text-success"></i> {l s='Connected to Emporiqa. One more step.' mod='emporiqa'}</h3>
+        <p>{l s="Send your products and pages to Emporiqa so the chat has something to recommend. We'll send everything in batches in the background." mod='emporiqa'}</p>
+        <p>
+            <button type="button" id="emporiqa-welcome-send-catalog" class="btn btn-primary btn-lg">
+                <i class="icon-upload"></i> {l s='Send my catalog' mod='emporiqa'}
+            </button>
+            <span class="text-muted" style="margin-left:12px;">
+                {l s='%d items to send. Typically a few minutes.' sprintf=[($emporiqa_product_count + $emporiqa_page_count)] mod='emporiqa'}
+            </span>
+        </p>
+        <p class="text-muted small">
+            {l s="The chat goes live the moment the first product arrives. You don't need to keep this tab open. Sync runs from your store." mod='emporiqa'}
+        </p>
+    </div>
+    {literal}
+    <script>
+    (function () {
+        // Wire the welcome-card "Send my catalog" button to the existing
+        // Sync All flow so the merchant gets one-click bulk sync.
+        document.addEventListener('DOMContentLoaded', function () {
+            var welcome = document.getElementById('emporiqa-welcome-send-catalog');
+            var syncAll = document.getElementById('emporiqa-sync-all');
+            if (!welcome || !syncAll) {
+                return;
+            }
+            welcome.addEventListener('click', function () {
+                syncAll.click();
+                syncAll.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        });
+    })();
+    </script>
+    {/literal}
+{/if}
+
 {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set}
     <div class="alert alert-warning">
         {l s='Configure your Store ID and Connection Secret in the Settings tab before syncing.' mod='emporiqa'}

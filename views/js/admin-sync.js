@@ -305,7 +305,11 @@
             entity: entity
         }, function (ok, response) {
             if (!ok || !response || !response.success) {
-                addLogEntry('Failed to initialize sync.', 'error');
+                var reason = (response && (response.error || response.message)) || '';
+                addLogEntry(
+                    'Failed to initialize sync.' + (reason ? ' ' + reason : ''),
+                    'error'
+                );
                 setSyncRunning(false);
                 return;
             }
@@ -375,7 +379,11 @@
                             batchResponse.success ? 'info' : 'warning'
                         );
                     } else {
-                        addLogEntry(sprintf('Batch failed for %1$s', work.entity), 'error');
+                        var batchReason = (batchResponse && (batchResponse.error || batchResponse.message)) || '';
+                        addLogEntry(
+                            sprintf('Batch failed for %1$s', work.entity) + (batchReason ? '. ' + batchReason : ''),
+                            'error'
+                        );
                     }
 
                     if (totalItems > 0) {
@@ -411,8 +419,9 @@
                             'success'
                         );
                     } else {
+                        var completeReason = (completeResponse && (completeResponse.error || completeResponse.message)) || '';
                         addLogEntry(
-                            sprintf('Failed to complete %1$s session', sess.entity),
+                            sprintf('Failed to complete %1$s session', sess.entity) + (completeReason ? '. ' + completeReason : ''),
                             'error'
                         );
                     }

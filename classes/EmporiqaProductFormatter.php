@@ -82,6 +82,10 @@ class EmporiqaProductFormatter
         // Shared fields (not channel/language-dependent)
         $brand = $this->getProductBrand($product);
         $defaultLangId = (int) Configuration::get('PS_LANG_DEFAULT');
+        $parentMinQty = (int) $product->minimal_quantity;
+        if ($parentMinQty < 1) {
+            $parentMinQty = 1;
+        }
 
         // Collect all unique languages across all channels, then fetch combinations once per language
         $allLangIds = [];
@@ -279,6 +283,15 @@ class EmporiqaProductFormatter
             }
         }
 
+        // Per-channel min order quantity. Mirrors `prices` / `stock_quantities`
+        // shape so PS multi-shop overrides have a place to live. Today we
+        // send the product-level value for every channel; per-shop reads
+        // from `ps_product_shop.minimal_quantity` can fill these in later.
+        $allMinQty = [];
+        foreach ($channelKeys as $ck) {
+            $allMinQty[$ck] = $parentMinQty;
+        }
+
         $parentData = [
             'identification_number' => 'product-' . $productId,
             'sku' => $parentSku,
@@ -293,6 +306,7 @@ class EmporiqaProductFormatter
             'availability_statuses' => $allAvailabilities,
             'stock_quantities' => $allStocks,
             'images' => $allImages,
+            'min_order_quantities' => $allMinQty,
             'parent_sku' => null,
             'is_parent' => $hasVariations,
             'variation_attributes' => !empty($allVariationAttributes) ? $allVariationAttributes : new stdClass(),
@@ -316,6 +330,7 @@ class EmporiqaProductFormatter
                     $allCategories,
                     $allDescriptions,
                     $combinationsByLang,
+                    $parentMinQty,
                     $syncSessionId
                 );
                 if ($variationData) {
@@ -337,6 +352,7 @@ class EmporiqaProductFormatter
         array $parentCategories,
         array $parentDescriptions,
         array $combinationsByLang,
+        $parentMinQty = 1,
         $syncSessionId = null
     ) {
         $productId = (int) $product->id;
@@ -446,6 +462,23 @@ class EmporiqaProductFormatter
             $reference = $comboGroup[0]['reference'];
         }
 
+        // Per-variation minimum order quantity lives on
+        // `ps_product_attribute.minimal_quantity` (note: PS uses
+        // `minimal_` everywhere -- the `minimum_` spelling was a typo).
+        // Inherit the parent's minimal_quantity when the combination has
+        // none (column default 1).
+        $variationMinQty = isset($comboGroup[0]['minimal_quantity']) ? (int) $comboGroup[0]['minimal_quantity'] : 0;
+        if ($variationMinQty < 1) {
+            $variationMinQty = $parentMinQty > 0 ? (int) $parentMinQty : 1;
+        }
+
+        // No per-shop dimension for combination min_qty in PS, so the same
+        // value goes to every channel for shape consistency with the parent.
+        $allMinQty = [];
+        foreach ($channelKeys as $ck) {
+            $allMinQty[$ck] = $variationMinQty;
+        }
+
         $data = [
             'identification_number' => 'variation-' . $paId,
             'sku' => $reference ?: 'variation-' . $paId,
@@ -460,6 +493,7 @@ class EmporiqaProductFormatter
             'availability_statuses' => $allAvailabilities,
             'stock_quantities' => $allStocks,
             'images' => $allImages,
+            'min_order_quantities' => $allMinQty,
             'parent_sku' => $parentSku,
             'is_parent' => false,
             'variation_attributes' => new stdClass(),
