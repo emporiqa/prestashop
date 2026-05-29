@@ -1,6 +1,6 @@
 <?php
 /**
- * One-click connect handshake controller (PS 8.0+ and PS 9.x compatible).
+ * One-click connect handshake controller (PS 8.1+ and PS 9.x compatible).
  *
  * Mirrors the WooCommerce Emporiqa_Connect flow. Two actions:
  *
@@ -398,7 +398,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
 
     private function randomToken(int $bytes): string
     {
-        // PHP 7.4+ on PS 8.0+; PHP 8.1+ on PS 9. random_bytes is available.
+        // PHP 7.4+ on PS 8.1+; PHP 8.1+ on PS 9. random_bytes is available.
         return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
     }
 

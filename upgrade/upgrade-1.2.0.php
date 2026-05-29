@@ -24,6 +24,12 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
+// Make sure no PHP notice or warning emitted during the upgrade leaks to
+// the merchant's browser response (PrestaShop already logs to its own
+// channel via PrestaShopLogger).
+@ini_set('display_errors', '0');
+@ini_set('display_startup_errors', '0');
+
 /**
  * @param Emporiqa $module
  * @return bool

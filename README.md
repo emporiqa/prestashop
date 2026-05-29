@@ -29,7 +29,7 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 
 ## Requirements
 
-- PrestaShop 8.0+ or 9.0+
+- PrestaShop 8.1+ or 9.x
 - PHP 7.4+
 - An [Emporiqa account](https://emporiqa.com/platform/create-store/). Sign up with no card; $25 of signup credit (~100 free conversations) auto-applied
 
@@ -70,6 +70,22 @@ The recommended path is **Connect to Emporiqa** (one-click handshake, no credent
 | Batch Size | Products/pages per webhook request during bulk sync | 25 |
 
 Order tracking (with customer email verification) and in-chat cart operations are always enabled. No configuration needed.
+
+## Keeping your catalog in sync
+
+The module pushes product, page, and order changes to Emporiqa automatically as they happen via PrestaShop hooks. Per-product changes — scheduled promos (SpecificPrice), image edits, out-of-stock transitions, and combination edits — re-emit the affected product on their own.
+
+Some changes affect the whole catalog (category or brand renames, currency rate refreshes, tax-rate or tax-rules-group edits, cart-rule changes, new languages enabled). Running a synchronous per-product re-sync from those hooks would block the admin request, so the module logs an actionable warning in **Advanced Parameters → Logs** instead and leaves the catalog refresh to a manual run.
+
+Re-run a full sync from the **Sync** tab when:
+
+- You see one of the "catalog-wide change" warnings in the PrestaShop log
+- You add a new shop in multi-shop mode (existing products won't carry the new shop's data until something else touches them)
+- You import products in bulk from a CSV file (PrestaShop sometimes bypasses standard save hooks during bulk imports)
+- A custom script, migration, or another module writes catalog data directly to the database
+- Emporiqa was unreachable for an extended period (network outage, planned maintenance, expired credentials)
+
+As a safety net, run a full sync once a week to catch any drift that may have built up from background failures.
 
 ## Module Structure
 
@@ -134,6 +150,15 @@ Each active shop language is mapped to a standard language code. A single produc
 | `actionValidateOrder` | Captures chat session ID and sends order.completed event |
 | `actionOrderStatusPostUpdate` | Sends order.completed for late payment captures |
 | `actionUpdateQuantity` | Re-syncs product when stock changes |
+| `actionProductOutOfStock` | Re-syncs the product on stock-boundary transitions |
+| `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-syncs the affected product on scheduled promos / per-group reductions |
+| `actionObjectImage{Add,Update,Delete}After` | Re-syncs the affected product when product images change |
+| `actionObjectCategory{Update,Delete}After` | Logs an actionable warning so the merchant can run a full sync (catalog-wide impact) |
+| `actionObjectManufacturer{Update,Delete}After` | Logs an actionable warning so the merchant can run a full sync (catalog-wide impact) |
+| `actionObjectCartRule{Add,Update,Delete}After` | Logs an actionable warning so the merchant can run a full sync (catalog-wide impact) |
+| `actionObjectCurrencyUpdateAfter` | Logs an actionable warning so the merchant can run a full sync (catalog-wide price impact) |
+| `actionObjectTaxUpdateAfter` / `actionObjectTaxRulesGroupUpdateAfter` | Logs an actionable warning so the merchant can run a full sync (catalog-wide price impact) |
+| `actionObjectLanguageAddAfter` | Logs an actionable warning so the merchant can run a full sync (new locale needs back-fill) |
 
 ## Extensibility Hooks
 

@@ -78,7 +78,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.2.0';
+        $this->version = '1.2.1';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -1562,7 +1562,10 @@ class Emporiqa extends Module
     }
 
     /**
-     * Read and sanitize the emporiqa_sid cookie value.
+     * Read and sanitize the emporiqa_sid cookie value. The strict regex
+     * already restricts the result to `[A-Za-z0-9_-]{1,128}`, but the
+     * value passes through pSQL() too so static-analysis tools recognise
+     * it as sanitized for downstream SQL / hook dispatch.
      */
     private function getEmporiqaSessionId()
     {
@@ -1573,7 +1576,7 @@ class Emporiqa extends Module
             return '';
         }
 
-        return $raw;
+        return pSQL($raw);
     }
 
     private function isWebhookConfigured()

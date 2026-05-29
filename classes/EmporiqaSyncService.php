@@ -51,58 +51,65 @@ class EmporiqaSyncService
      */
     public function initSync($entity, $dryRun = false)
     {
-        $productCount = 0;
-        $pageCount = 0;
+        try {
+            $productCount = 0;
+            $pageCount = 0;
 
-        if ($entity === 'products' || $entity === 'all') {
-            $productCount = $this->countProducts();
-        }
-
-        if ($entity === 'pages' || $entity === 'all') {
-            $pageCount = $this->countPages();
-        }
-
-        $sessions = [];
-        $entities = [];
-
-        if ($entity === 'products' || $entity === 'all') {
-            $entities[] = 'products';
-        }
-        if ($entity === 'pages' || $entity === 'all') {
-            $entities[] = 'pages';
-        }
-
-        foreach ($entities as $ent) {
-            $sessionId = 'ps-' . $ent . '-' . $this->generateUuid();
-
-            if (!$dryRun) {
-                $result = $this->webhookClient->startSyncSession($sessionId, $ent);
-                if (!$result) {
-                    $reason = $this->webhookClient->getLastError();
-                    $msg = sprintf('Failed to start %s sync session.', $ent);
-                    if ($reason) {
-                        $msg .= ' ' . $reason;
-                    }
-                    return [
-                        'success' => false,
-                        'error' => $msg,
-                    ];
-                }
+            if ($entity === 'products' || $entity === 'all') {
+                $productCount = $this->countProducts();
             }
 
-            $sessions[] = [
-                'entity' => $ent,
-                'session_id' => $sessionId,
+            if ($entity === 'pages' || $entity === 'all') {
+                $pageCount = $this->countPages();
+            }
+
+            $sessions = [];
+            $entities = [];
+
+            if ($entity === 'products' || $entity === 'all') {
+                $entities[] = 'products';
+            }
+            if ($entity === 'pages' || $entity === 'all') {
+                $entities[] = 'pages';
+            }
+
+            foreach ($entities as $ent) {
+                $sessionId = 'ps-' . $ent . '-' . $this->generateUuid();
+
+                if (!$dryRun) {
+                    $result = $this->webhookClient->startSyncSession($sessionId, $ent);
+                    if (!$result) {
+                        $reason = $this->webhookClient->getLastError();
+                        $msg = sprintf('Failed to start %s sync session.', $ent);
+                        if ($reason) {
+                            $msg .= ' ' . $reason;
+                        }
+                        return [
+                            'success' => false,
+                            'error' => $msg,
+                        ];
+                    }
+                }
+
+                $sessions[] = [
+                    'entity' => $ent,
+                    'session_id' => $sessionId,
+                ];
+            }
+
+            return [
+                'success' => true,
+                'product_count' => $productCount,
+                'page_count' => $pageCount,
+                'sessions' => $sessions,
+                'items_per_batch' => $this->batchSize,
+            ];
+        } catch (\Exception $e) {
+            return [
+                'success' => false,
+                'error' => 'Sync init failed: ' . $e->getMessage(),
             ];
         }
-
-        return [
-            'success' => true,
-            'product_count' => $productCount,
-            'page_count' => $pageCount,
-            'sessions' => $sessions,
-            'items_per_batch' => $this->batchSize,
-        ];
     }
 
     /**
@@ -323,13 +330,20 @@ class EmporiqaSyncService
 
     private function generateUuid()
     {
-        return sprintf(
-            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            random_int(0, 0xFFFF), random_int(0, 0xFFFF),
-            random_int(0, 0xFFFF),
-            random_int(0, 0x0FFF) | 0x4000,
-            random_int(0, 0x3FFF) | 0x8000,
-            random_int(0, 0xFFFF), random_int(0, 0xFFFF), random_int(0, 0xFFFF)
-        );
+        try {
+            return sprintf(
+                '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                random_int(0, 0xFFFF), random_int(0, 0xFFFF),
+                random_int(0, 0xFFFF),
+                random_int(0, 0x0FFF) | 0x4000,
+                random_int(0, 0x3FFF) | 0x8000,
+                random_int(0, 0xFFFF), random_int(0, 0xFFFF), random_int(0, 0xFFFF)
+            );
+        } catch (\Exception $e) {
+            // random_int can throw on a broken /dev/urandom; fall back to
+            // a non-cryptographic id (sync sessions are server-internal,
+            // collisions are recoverable).
+            return uniqid('emporiqa-sync-', true);
+        }
     }
 }

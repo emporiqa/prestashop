@@ -119,7 +119,7 @@
             body: formData
         })
         .then(function (response) {
-            if (!response.ok) throw new Error('HTTP ' + response.status);
+            if (!response.ok) throw new Error('Sync request failed');
             return response.json();
         })
         .then(function (json) { callback(true, json); })
