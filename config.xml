@@ -2,7 +2,7 @@
 <module>
     <name>emporiqa</name>
     <displayName><![CDATA[Emporiqa]]></displayName>
-    <version><![CDATA[1.2.1]]></version>
+    <version><![CDATA[1.2.3]]></version>
     <description><![CDATA[Integrates PrestaShop with Emporiqa chat assistant.]]></description>
     <author><![CDATA[Emporiqa]]></author>
     <tab><![CDATA[front_office_features]]></tab>

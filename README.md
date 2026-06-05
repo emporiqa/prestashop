@@ -15,7 +15,7 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 - **Closes sales**: Handles objections like "too expensive" by suggesting alternatives from your catalog, instead of a discount.
 - **Visual search**: Shoppers upload a photo in the widget; the chatbot describes it and finds matching products in your synced PrestaShop catalog (no extra config required).
 - **Brand-safe answers**: Every reply comes from your synced products and CMS pages, never from training data. Low-confidence questions hand off to your team.
-- **Product sync**: Real-time webhook sync of catalog products and combinations (variations). Parent/child relationships, attributes, prices, stock levels, and images are all included.
+- **Product sync**: Real-time webhook sync of catalog products and combinations (variations). Parent/child relationships, attributes, prices, stock levels, and images are all included, along with PrestaShop's native `condition` (new/used/refurbished), `is_virtual` (digital products), and `available_for_order` (display-only / catalog-mode products) flags.
 - **Page sync**: CMS pages synced with per-language content so the assistant can answer support questions from your own content.
 - **Chat widget**: Automatically embedded on your storefront in the correct language for the current visitor.
 - **In-chat cart**: Shoppers can add, update, remove items, and proceed to checkout directly from the chat.
@@ -73,7 +73,7 @@ Order tracking (with customer email verification) and in-chat cart operations ar
 
 ## Keeping your catalog in sync
 
-The module pushes product, page, and order changes to Emporiqa automatically as they happen via PrestaShop hooks. Per-product changes — scheduled promos (SpecificPrice), image edits, out-of-stock transitions, and combination edits — re-emit the affected product on their own.
+The module pushes product, page, and order changes to Emporiqa automatically as they happen via PrestaShop hooks. Per-product changes such as scheduled promos (SpecificPrice), image edits, and combination edits re-emit the affected product on their own; pure stock/out-of-stock changes emit a compact availability-only update instead of rebuilding the whole product.
 
 Some changes affect the whole catalog (category or brand renames, currency rate refreshes, tax-rate or tax-rules-group edits, cart-rule changes, new languages enabled). Running a synchronous per-product re-sync from those hooks would block the admin request, so the module logs an actionable warning in **Advanced Parameters → Logs** instead and leaves the catalog refresh to a manual run.
 
@@ -134,6 +134,15 @@ All webhooks are signed with HMAC-SHA256 via the `X-Webhook-Signature` header fo
 
 PrestaShop products with combinations are synced with their full variation structure. The parent product carries the shared name, description, and images, while each combination carries its specific attributes (size, color, etc.), price, and stock. The assistant understands "this jacket comes in blue and red, sizes S through XL."
 
+The full product (and combination) payload also includes a few PrestaShop-native merchandising flags so the assistant can describe and sell products accurately:
+
+- `condition`: string or null; PrestaShop's product `condition` (`"new"`, `"used"`, or `"refurbished"`).
+- `is_virtual`: boolean; true for digital products with no shipping.
+- `available_for_order`: boolean; false for display-only / catalog-mode products. The assistant still describes these but won't add them to the cart.
+- `max_order_quantities`: per-channel dict (`{channel: int|null}`) of the maximum allowed per-order quantity. PrestaShop has no native per-order maximum, so this currently always ships `null` (no limit). The field is included for cross-platform contract parity, so a future custom source can populate it.
+
+These flags are part of the full product and combination payload, not the lightweight `product.availability` event. Pure stock/availability changes skip the full rebuild and send a compact `product.availability` event carrying only the identification number, SKU, per-channel availability statuses, and stock quantities, one entry per simple product or per combination.
+
 ### Multi-Language
 
 Each active shop language is mapped to a standard language code. A single product with translations in 3 languages is sent as one webhook payload with all translations nested: fewer HTTP requests, consistent data.
@@ -149,8 +158,8 @@ Each active shop language is mapped to a standard language code. A single produc
 | `actionObjectCms{Add,Update,Delete}After` | Syncs CMS pages on create/update/delete |
 | `actionValidateOrder` | Captures chat session ID and sends order.completed event |
 | `actionOrderStatusPostUpdate` | Sends order.completed for late payment captures |
-| `actionUpdateQuantity` | Re-syncs product when stock changes |
-| `actionProductOutOfStock` | Re-syncs the product on stock-boundary transitions |
+| `actionUpdateQuantity` | Emits a lightweight `product.availability` event when stock changes (no full product rebuild) |
+| `actionProductOutOfStock` | Emits a `product.availability` event on stock-boundary transitions |
 | `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-syncs the affected product on scheduled promos / per-group reductions |
 | `actionObjectImage{Add,Update,Delete}After` | Re-syncs the affected product when product images change |
 | `actionObjectCategory{Update,Delete}After` | Logs an actionable warning so the merchant can run a full sync (catalog-wide impact) |
@@ -178,7 +187,7 @@ Developers can hook into the sync pipeline to customize payloads or cancel syncs
 
 The module is free. Emporiqa is Pay-as-you-go: $0/month base + $0.25/conversation. New accounts get $25 of signup credit (about 100 conversations on us), no card required at signup. After the credit, the monthly cap defaults to $59 and is customer-adjustable from the billing dashboard. Enterprise option for catalogs over 30,000 products. Full pricing at [emporiqa.com/pricing/](https://emporiqa.com/pricing/).
 
-Emporiqa also works with Drupal Commerce, WooCommerce, Magento, Shopware, Sylius, and any store via webhook API. Same platform, same dashboard, same salesperson.
+Emporiqa also works with Drupal Commerce, WooCommerce, Magento, Shopware, Sylius, and any store via webhook API. One Emporiqa account and dashboard runs across all of them.
 
 ## Documentation & Support
 

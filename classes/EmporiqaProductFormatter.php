@@ -292,6 +292,19 @@ class EmporiqaProductFormatter
             $allMinQty[$ck] = $parentMinQty;
         }
 
+        // Per-channel maximum order quantity. Mirrors the `min_order_quantities`
+        // shape. PrestaShop core has NO native max-per-order field, so this is a
+        // placeholder that always emits null (= no limit) for every channel. A
+        // future custom field (e.g. a per-shop column) can fill these in later.
+        $allMaxQty = [];
+        foreach ($channelKeys as $ck) {
+            $allMaxQty[$ck] = null;
+        }
+
+        $availableForOrder = (bool) $product->available_for_order;
+        $productCondition = !empty($product->condition) ? (string) $product->condition : null;
+        $isVirtual = (bool) $product->is_virtual;
+
         $parentData = [
             'identification_number' => 'product-' . $productId,
             'sku' => $parentSku,
@@ -307,6 +320,10 @@ class EmporiqaProductFormatter
             'stock_quantities' => $allStocks,
             'images' => $allImages,
             'min_order_quantities' => $allMinQty,
+            'max_order_quantities' => $allMaxQty,
+            'available_for_order' => $availableForOrder,
+            'condition' => $productCondition,
+            'is_virtual' => $isVirtual,
             'parent_sku' => null,
             'is_parent' => $hasVariations,
             'variation_attributes' => !empty($allVariationAttributes) ? $allVariationAttributes : new stdClass(),
@@ -337,6 +354,132 @@ class EmporiqaProductFormatter
                     $result[] = $variationData;
                 }
             }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Build the lightweight "product.availability" payloads for a product.
+     *
+     * Mirrors the channel resolution, SKU scheme, per-channel availability
+     * status and stock-quantity logic of `format()` EXACTLY, but skips the
+     * heavy fields (names, descriptions, prices, images, categories). Used
+     * by the stock-only hook path so a bare quantity tick doesn't rebuild
+     * and re-ship the whole product.
+     *
+     * For a SIMPLE product, returns the single `product-{id}` entry (its own
+     * availability). For a product WITH combinations, returns one entry per
+     * combination (`variation-{paId}`) and intentionally OMITS the
+     * `product-{id}` parent aggregate: Emporiqa derives a parent's aggregate
+     * availability/stock on-demand from its combinations at read time, so
+     * shipping the aggregate on a stock tick would only refresh a stored field
+     * nothing reads. (The full event still emits the parent — it carries
+     * fields that ARE read, e.g. the price range.) Each entry is the SHARED
+     * availability contract:
+     *   identification_number, sku, availability_statuses{}, stock_quantities{}
+     *
+     * @param Product $product
+     *
+     * @return array<int, array> List of availability payload entries (may be empty)
+     */
+    public function formatAvailability(Product $product)
+    {
+        $productId = (int) $product->id;
+
+        $reference = trim((string) $product->reference);
+        $parentSku = $reference !== '' ? $reference : 'product-' . $productId;
+
+        $allContexts = $this->channelResolver->getShopContexts();
+        $productChannels = $this->channelResolver->getProductChannels($productId);
+        if (empty($productChannels)) {
+            return [];
+        }
+
+        $contexts = [];
+        foreach ($allContexts as $channelKey => $ctx) {
+            if (in_array($channelKey, $productChannels, true)) {
+                $contexts[$channelKey] = $ctx;
+            }
+        }
+        if (empty($contexts)) {
+            return [];
+        }
+
+        // Group combinations by product_attribute id. Only paIds + references
+        // are needed here, so a single language pass is enough. Prefer the
+        // default language; if it yields nothing (a product whose attributes
+        // lack default-language names — getAttributeCombinations inner-joins
+        // attribute_lang) fall back to any active language so a product with
+        // combinations is never misread as simple, mirroring format().
+        $defaultLangId = (int) Configuration::get('PS_LANG_DEFAULT');
+        $combos = $product->getAttributeCombinations($defaultLangId);
+        if (empty($combos)) {
+            foreach ($contexts as $ctx) {
+                foreach ($ctx['languages'] as $langId) {
+                    $combos = $product->getAttributeCombinations((int) $langId);
+                    if (!empty($combos)) {
+                        break 2;
+                    }
+                }
+            }
+        }
+        $groupedCombinations = [];
+        if (!empty($combos)) {
+            foreach ($combos as $combo) {
+                $paId = (int) $combo['id_product_attribute'];
+                if (!isset($groupedCombinations[$paId])) {
+                    $groupedCombinations[$paId] = $combo;
+                }
+            }
+        }
+        $hasVariations = count($groupedCombinations) > 0;
+
+        $result = [];
+
+        // Simple product (no combinations): the `product-{id}` entry IS the
+        // item, not an aggregate of children, so it must be emitted. For a
+        // product WITH combinations the parent aggregate is omitted (derived
+        // on-demand by Emporiqa); only the combination entries below ship.
+        if (!$hasVariations) {
+            $parentAvailabilities = [];
+            $parentStocks = [];
+            foreach ($contexts as $channelKey => $ctx) {
+                $shopId = $ctx['shop_id'];
+
+                // No shop-scoped reload needed: getAvailabilityStatus reads
+                // only the product id, and the shop dimension is applied via
+                // the $shopId argument (stock query + out_of_stock lookup).
+                $parentStock = $this->getStockQuantity($productId, $shopId);
+                $parentAvailabilities[$channelKey] = $this->getAvailabilityStatus($product, $parentStock, null, $shopId);
+                $parentStocks[$channelKey] = $parentStock;
+            }
+
+            $result[] = [
+                'identification_number' => 'product-' . $productId,
+                'sku' => $parentSku,
+                'availability_statuses' => $parentAvailabilities,
+                'stock_quantities' => $parentStocks,
+            ];
+        }
+
+        foreach ($groupedCombinations as $paId => $combo) {
+            $comboAvailabilities = [];
+            $comboStocks = [];
+            foreach ($contexts as $channelKey => $ctx) {
+                $shopId = $ctx['shop_id'];
+                $qty = $this->getStockQuantity($productId, $shopId, $paId);
+                $comboStocks[$channelKey] = $qty;
+                $comboAvailabilities[$channelKey] = $this->getAvailabilityStatus($product, $qty, $paId, $shopId);
+            }
+
+            $comboReference = isset($combo['reference']) ? trim((string) $combo['reference']) : '';
+            $result[] = [
+                'identification_number' => 'variation-' . (int) $paId,
+                'sku' => $comboReference !== '' ? $comboReference : 'variation-' . (int) $paId,
+                'availability_statuses' => $comboAvailabilities,
+                'stock_quantities' => $comboStocks,
+            ];
         }
 
         return $result;
@@ -479,6 +622,20 @@ class EmporiqaProductFormatter
             $allMinQty[$ck] = $variationMinQty;
         }
 
+        // Per-channel maximum order quantity. Mirrors `min_order_quantities`.
+        // PrestaShop core has NO native max-per-order field, so this is a
+        // placeholder that always emits null (= no limit) for every channel
+        // unless a future custom field is added.
+        $allMaxQty = [];
+        foreach ($channelKeys as $ck) {
+            $allMaxQty[$ck] = null;
+        }
+
+        // Product-level flags (combinations inherit them from the parent).
+        $availableForOrder = (bool) $product->available_for_order;
+        $productCondition = !empty($product->condition) ? (string) $product->condition : null;
+        $isVirtual = (bool) $product->is_virtual;
+
         $data = [
             'identification_number' => 'variation-' . $paId,
             'sku' => $reference ?: 'variation-' . $paId,
@@ -494,6 +651,10 @@ class EmporiqaProductFormatter
             'stock_quantities' => $allStocks,
             'images' => $allImages,
             'min_order_quantities' => $allMinQty,
+            'max_order_quantities' => $allMaxQty,
+            'available_for_order' => $availableForOrder,
+            'condition' => $productCondition,
+            'is_virtual' => $isVirtual,
             'parent_sku' => $parentSku,
             'is_parent' => false,
             'variation_attributes' => new stdClass(),
@@ -651,49 +812,48 @@ class EmporiqaProductFormatter
             $currencies = $default ? [['id_currency' => $default->id, 'iso_code' => $default->iso_code]] : [];
         }
 
-        $defaultCurrencyId = (int) Configuration::get('PS_CURRENCY_DEFAULT');
-
-        // Build shop-specific context for correct multi-shop pricing
-        $priceContext = null;
+        // Base context for price computation, shop-scoped for multi-shop so
+        // per-shop pricing (ps_product_shop) resolves correctly.
+        $baseContext = $this->context;
         if ($shopId && Shop::isFeatureActive() && (int) $shopId !== (int) $this->context->shop->id) {
-            $priceContext = $this->context->cloneContext();
-            $priceContext->shop = new Shop((int) $shopId);
+            $baseContext = $this->context->cloneContext();
+            $baseContext->shop = new Shop((int) $shopId);
         }
-
-        $specificPrice = null;
-        $priceInclTax = (float) Product::getPriceStatic(
-            (int) $productId, true, $paId, 2, null, false, true, 1, false,
-            null, null, null, $specificPrice, true, true, $priceContext
-        );
-        $priceExclTax = (float) Product::getPriceStatic(
-            (int) $productId, false, $paId, 2, null, false, true, 1, false,
-            null, null, null, $specificPrice, true, true, $priceContext
-        );
-        $regularInclTax = (float) Product::getPriceStatic(
-            (int) $productId, true, $paId, 2, null, false, false, 1, false,
-            null, null, null, $specificPrice, true, true, $priceContext
-        );
 
         $entries = [];
 
         foreach ($currencies as $currency) {
             $iso = is_array($currency) ? $currency['iso_code'] : $currency->iso_code;
             $currId = (int) (is_array($currency) ? $currency['id_currency'] : $currency->id);
-            $isDefault = ($currId === $defaultCurrencyId);
 
-            if ($isDefault) {
-                $currentInc = $priceInclTax;
-                $currentExc = $priceExclTax;
-                $regularInc = $regularInclTax;
-            } else {
-                if (!isset(self::$currencyObjCache[$currId])) {
-                    self::$currencyObjCache[$currId] = is_array($currency) ? new Currency($currId) : $currency;
-                }
-                $currencyObj = self::$currencyObjCache[$currId];
-                $currentInc = Tools::convertPriceFull($priceInclTax, null, $currencyObj);
-                $currentExc = Tools::convertPriceFull($priceExclTax, null, $currencyObj);
-                $regularInc = Tools::convertPriceFull($regularInclTax, null, $currencyObj);
+            if (!isset(self::$currencyObjCache[$currId])) {
+                self::$currencyObjCache[$currId] = is_array($currency) ? new Currency($currId) : $currency;
             }
+            $currencyObj = self::$currencyObjCache[$currId];
+
+            // Compute the price in THIS currency's own context. getPriceStatic
+            // reads the currency from the context to (a) match currency-scoped
+            // specific prices — a promo or price override set for one currency
+            // only — and (b) convert the base price. Computing once in the
+            // default currency and mathematically converting (the previous
+            // approach) silently dropped currency-targeted promotions: the chat
+            // would quote the undiscounted converted price.
+            $priceContext = $baseContext->cloneContext();
+            $priceContext->currency = $currencyObj;
+
+            $specificPrice = null;
+            $currentInc = (float) Product::getPriceStatic(
+                (int) $productId, true, $paId, 2, null, false, true, 1, false,
+                null, null, null, $specificPrice, true, true, $priceContext
+            );
+            $currentExc = (float) Product::getPriceStatic(
+                (int) $productId, false, $paId, 2, null, false, true, 1, false,
+                null, null, null, $specificPrice, true, true, $priceContext
+            );
+            $regularInc = (float) Product::getPriceStatic(
+                (int) $productId, true, $paId, 2, null, false, false, 1, false,
+                null, null, null, $specificPrice, true, true, $priceContext
+            );
 
             $entry = [
                 'currency' => $iso,

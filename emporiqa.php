@@ -58,6 +58,19 @@ class Emporiqa extends Module
     /** @var array<int, true> productId => true. Same flush as syncs; delete wins on conflict. */
     private $pendingProductDeletes = [];
 
+    /**
+     * @var array<int, true> productId => true.
+     *
+     * Stock/availability-ONLY changes (quantity ticks) are queued here and
+     * flushed as a lightweight `product.availability` event at shutdown,
+     * instead of rebuilding and re-shipping the full product. Mutually
+     * exclusive with `$pendingProductSyncs`: a product already queued for a
+     * full `product.updated` this request is never also queued here, and a
+     * full sync queued afterwards drops the pending stock entry at flush
+     * time (full event already carries the final availability).
+     */
+    private $pendingStockEvents = [];
+
     /** @var bool true once we've registered the shutdown callback this request. */
     private $shutdownFlushRegistered = false;
 
@@ -78,7 +91,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.2.1';
+        $this->version = '1.2.3';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -722,17 +735,19 @@ class Emporiqa extends Module
             return;
         }
 
+        // $params carries id_product / id_product_attribute / id_shop /
+        // quantity, so we don't need to format the full product. Route this
+        // to the lightweight stock path: when ONLY availability changed,
+        // ship a tiny `product.availability` event and spare the merchant's
+        // server a full rebuild. If a full `product.updated` is already
+        // queued for this product, that wins (it carries the final
+        // availability anyway) — queueStockEvent no-ops in that case.
         $productId = isset($params['id_product']) ? (int) $params['id_product'] : 0;
-        if (!$productId || isset($this->pendingProductSyncs[$productId])) {
+        if (!$productId) {
             return;
         }
 
-        $product = new Product($productId);
-        if (!Validate::isLoadedObject($product) || !$product->active) {
-            return;
-        }
-
-        $this->queueProductEvent($product, 'product.updated');
+        $this->queueStockEvent($productId);
     }
 
     public function hookActionObjectCombinationAddAfter($params)
@@ -981,9 +996,10 @@ class Emporiqa extends Module
     // -------------------------------------------------------------------------
     //
     // Stock transitions (in→out, out→in) change availability shown in the
-    // widget. actionUpdateQuantity covers most cases, but actionProductOutOfStock
-    // fires on the boundary transition specifically and is the safer signal.
-    // Re-sync just the affected product id.
+    // widget. actionUpdateQuantity covers most cases (and is the richer
+    // signal — it fires on incremental changes too, not just the boundary),
+    // so both hooks route to the SAME lightweight stock path. Per-request
+    // dedup coalesces the two fires into one `product.availability` event.
 
     public function hookActionProductOutOfStock($params)
     {
@@ -996,18 +1012,11 @@ class Emporiqa extends Module
         if (!$productId && isset($params['id_product'])) {
             $productId = (int) $params['id_product'];
         }
-        if (!$productId || isset($this->pendingProductSyncs[$productId])) {
+        if (!$productId) {
             return;
         }
 
-        if (!($product instanceof Product) || (int) $product->id !== $productId) {
-            $product = new Product($productId);
-        }
-        if (!Validate::isLoadedObject($product) || !$product->active) {
-            return;
-        }
-
-        $this->queueProductEvent($product, 'product.updated');
+        $this->queueStockEvent($productId);
     }
 
     // -------------------------------------------------------------------------
@@ -1277,6 +1286,34 @@ class Emporiqa extends Module
             return;
         }
         $this->pendingProductSyncs[$productId] = $eventType;
+        // A full product.updated supersedes any stock-only event queued
+        // earlier this request for the same product — the full payload
+        // already carries the final availability_statuses + stock_quantities.
+        unset($this->pendingStockEvents[$productId]);
+        $this->registerShutdownFlush();
+    }
+
+    /**
+     * Queue a stock/availability-only change for end-of-request flush as a
+     * lightweight `product.availability` event.
+     *
+     * Mutually exclusive with full syncs: no-ops if the product is already
+     * queued for a full `product.updated` this request (that event carries
+     * the final availability). Per-product keyed array doubles as dedup, so
+     * many quantity ticks (and combination ticks) for one product in a
+     * single request coalesce into ONE event reflecting the final DB state
+     * (loaded fresh at flush, after PS9's CQRS commands settle).
+     */
+    private function queueStockEvent($productId)
+    {
+        if (!$this->isWebhookConfigured()) {
+            return;
+        }
+        $productId = (int) $productId;
+        if (!$productId || isset($this->pendingProductSyncs[$productId])) {
+            return;
+        }
+        $this->pendingStockEvents[$productId] = true;
         $this->registerShutdownFlush();
     }
 
@@ -1285,7 +1322,10 @@ class Emporiqa extends Module
         if (!$this->isWebhookConfigured()) {
             return;
         }
-        $this->pendingProductDeletes[(int) $productId] = true;
+        $productId = (int) $productId;
+        $this->pendingProductDeletes[$productId] = true;
+        // Delete supersedes a stock-only event for the same product.
+        unset($this->pendingStockEvents[$productId]);
         $this->registerShutdownFlush();
     }
 
@@ -1314,6 +1354,7 @@ class Emporiqa extends Module
         if (
             empty($this->pendingProductSyncs)
             && empty($this->pendingProductDeletes)
+            && empty($this->pendingStockEvents)
             && empty($this->pendingPageSyncs)
             && empty($this->pendingPageDeletes)
         ) {
@@ -1326,10 +1367,12 @@ class Emporiqa extends Module
         // iterating.
         $productSyncs = $this->pendingProductSyncs;
         $productDeletes = $this->pendingProductDeletes;
+        $stockEvents = $this->pendingStockEvents;
         $pageSyncs = $this->pendingPageSyncs;
         $pageDeletes = $this->pendingPageDeletes;
         $this->pendingProductSyncs = [];
         $this->pendingProductDeletes = [];
+        $this->pendingStockEvents = [];
         $this->pendingPageSyncs = [];
         $this->pendingPageDeletes = [];
 
@@ -1343,6 +1386,17 @@ class Emporiqa extends Module
         }
         foreach (array_keys($productDeletes) as $productId) {
             $this->dispatchProductDelete((int) $productId);
+        }
+
+        // Stock-only events last. Skip any product that also got a full
+        // sync or a delete this request (mutual exclusivity / delete wins) —
+        // queue-time guards already prevent most of these, but re-entrant
+        // hook fires during dispatch could have re-added one.
+        foreach (array_keys($stockEvents) as $productId) {
+            if (isset($productSyncs[$productId]) || isset($productDeletes[$productId])) {
+                continue;
+            }
+            $this->dispatchStockEvent((int) $productId);
         }
 
         foreach ($pageSyncs as $cmsId => $eventType) {
@@ -1424,6 +1478,50 @@ class Emporiqa extends Module
             }
 
             $client->dispatchEvents($events);
+        } catch (\Exception $e) {
+            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
+        }
+    }
+
+    /**
+     * Dispatch a lightweight `product.availability` event for a stock-only
+     * change. Loads the product fresh (post-CQRS) and respects the same
+     * gating as the full sync: inactive products fall through to a delete,
+     * and the `actionEmporiqaShouldSyncProduct` veto is honored so excluded
+     * / unsyncable products never emit. Ships one event per parent +
+     * variation, each carrying only the shared availability contract.
+     */
+    private function dispatchStockEvent($productId)
+    {
+        try {
+            $product = new Product($productId);
+            if (!Validate::isLoadedObject($product)) {
+                return;
+            }
+            if (!$product->active) {
+                $this->dispatchProductDelete($productId);
+                return;
+            }
+
+            $shouldSync = true;
+            $this->dispatchSyncHook('actionEmporiqaShouldSyncProduct', [
+                'product' => $product,
+                'event_type' => 'product.availability',
+            ], $shouldSync);
+            if (!$shouldSync) {
+                return;
+            }
+
+            $items = $this->getProductFormatter()->formatAvailability($product);
+            if (empty($items)) {
+                return;
+            }
+
+            $events = [];
+            foreach ($items as $item) {
+                $events[] = ['type' => 'product.availability', 'data' => $item];
+            }
+            $this->getWebhookClient()->dispatchEvents($events);
         } catch (\Exception $e) {
             PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
         }
