@@ -24,10 +24,10 @@ require_once dirname(__FILE__) . '/classes/EmporiqaSyncService.php';
 
 class Emporiqa extends Module
 {
-    const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
+    public const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
 
     /** Where one-click connect points the browser. Override via Configuration::updateValue('EMPORIQA_BASE_URL', ...) for staging. */
-    const DEFAULT_BASE_URL = 'https://emporiqa.com';
+    public const DEFAULT_BASE_URL = 'https://emporiqa.com';
 
     /** @var EmporiqaWebhookClient|null */
     private $webhookClient;
@@ -91,7 +91,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.2.4';
+        $this->version = '1.2.5';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -863,6 +863,7 @@ class Emporiqa extends Module
                 null,
                 'Emporiqa'
             );
+
             return;
         }
 
@@ -1159,7 +1160,7 @@ class Emporiqa extends Module
                 'id_order' => (int) $order->id,
                 'date_add' => date('Y-m-d H:i:s'),
             ], false, true, Db::ON_DUPLICATE_KEY);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             PrestaShopLogger::addLog(
                 '[Emporiqa] Order webhook failed for #' . $order->id . ': ' . $e->getMessage(),
                 3,
@@ -1209,7 +1210,7 @@ class Emporiqa extends Module
                 'id_order' => (int) $orderId,
                 'date_add' => date('Y-m-d H:i:s'),
             ], false, true, Db::ON_DUPLICATE_KEY);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             PrestaShopLogger::addLog(
                 '[Emporiqa] Order status webhook failed for #' . $orderId . ': ' . $e->getMessage(),
                 3,
@@ -1427,6 +1428,7 @@ class Emporiqa extends Module
             }
             if (!$product->active) {
                 $this->dispatchProductDelete($productId);
+
                 return;
             }
 
@@ -1458,7 +1460,7 @@ class Emporiqa extends Module
                 $events[] = ['type' => $eventType, 'data' => $item];
             }
             $client->dispatchEvents($events);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
         }
     }
@@ -1484,7 +1486,7 @@ class Emporiqa extends Module
             }
 
             $client->dispatchEvents($events);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
         }
     }
@@ -1506,6 +1508,7 @@ class Emporiqa extends Module
             }
             if (!$product->active) {
                 $this->dispatchProductDelete($productId);
+
                 return;
             }
 
@@ -1528,7 +1531,7 @@ class Emporiqa extends Module
                 $events[] = ['type' => 'product.availability', 'data' => $item];
             }
             $this->getWebhookClient()->dispatchEvents($events);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
         }
     }
@@ -1546,6 +1549,7 @@ class Emporiqa extends Module
             }
             if (!$cms->active) {
                 $this->dispatchPageDelete($cmsId);
+
                 return;
             }
 
@@ -1568,7 +1572,7 @@ class Emporiqa extends Module
                 'event_type' => $eventType,
             ]);
             $this->getWebhookClient()->dispatchEvent($eventType, $formatted);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
         }
     }
@@ -1582,7 +1586,7 @@ class Emporiqa extends Module
             $this->getWebhookClient()->dispatchEvent('page.deleted', [
                 'identification_number' => 'page-' . $cmsId,
             ]);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
         }
     }
@@ -1633,7 +1637,7 @@ class Emporiqa extends Module
             $formatted = $this->getProductFormatter()->format($product);
 
             return !empty($formatted) ? $formatted[0] : null;
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return null;
         }
     }
@@ -1660,7 +1664,7 @@ class Emporiqa extends Module
             }
 
             return $this->getPageFormatter()->format($cms);
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return null;
         }
     }

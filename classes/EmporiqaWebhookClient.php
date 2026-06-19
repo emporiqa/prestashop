@@ -20,7 +20,7 @@ if (!defined('_PS_VERSION_')) {
 
 class EmporiqaWebhookClient
 {
-    const FLUSH_BATCH_SIZE = 50;
+    public const FLUSH_BATCH_SIZE = 50;
 
     /**
      * Hard cap on the synchronous hook-driven send, in seconds. The merchant
@@ -29,7 +29,7 @@ class EmporiqaWebhookClient
      * so a slow DNS/TLS handshake can't eat the whole window — see the
      * connect-timeout branch in doRequest().
      */
-    const SYNC_HOOK_TIMEOUT = 1.5;
+    public const SYNC_HOOK_TIMEOUT = 1.5;
 
     /**
      * Handshake budget (ms) for hook-driven sends. Tighter than the total
@@ -37,7 +37,7 @@ class EmporiqaWebhookClient
      * in <100ms; anything slower than this and we'd rather fail fast and
      * let the merchant continue than burn their save latency on retries.
      */
-    const SYNC_HOOK_CONNECT_TIMEOUT_MS = 500;
+    public const SYNC_HOOK_CONNECT_TIMEOUT_MS = 500;
 
     /** @var array Events queued for deferred sending. Retained for backwards-compat with anything still calling queueEvent + flushPendingEvents. */
     private $pendingEvents = [];

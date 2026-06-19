@@ -32,6 +32,7 @@ if (!defined('_PS_VERSION_')) {
 
 /**
  * @param Emporiqa $module
+ *
  * @return bool
  */
 function upgrade_module_1_2_0($module)

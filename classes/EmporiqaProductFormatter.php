@@ -496,7 +496,7 @@ class EmporiqaProductFormatter
         array $parentDescriptions,
         array $combinationsByLang,
         $parentMinQty = 1,
-        $syncSessionId = null
+        $syncSessionId = null,
     ) {
         $productId = (int) $product->id;
         $brand = $this->getProductBrand($product);

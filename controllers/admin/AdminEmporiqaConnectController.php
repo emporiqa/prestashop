@@ -57,11 +57,13 @@ class AdminEmporiqaConnectController extends ModuleAdminController
 
         if ($action === 'initiate') {
             $this->handleInitiate();
+
             return;
         }
 
         if ($action === 'callback') {
             $this->handleCallback();
+
             return;
         }
 
@@ -88,6 +90,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                 )
             );
             $this->redirectToSettings();
+
             return;
         }
 
@@ -109,6 +112,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                 )
             );
             $this->redirectToSettings();
+
             return;
         }
 
@@ -157,6 +161,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                 $this->trans('Unexpected redirect source.', [], 'Modules.Emporiqa.Admin')
             );
             $this->redirectToSettings();
+
             return;
         }
 
@@ -166,6 +171,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                 $this->trans('Callback missing required parameters.', [], 'Modules.Emporiqa.Admin')
             );
             $this->redirectToSettings();
+
             return;
         }
 
@@ -180,6 +186,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                 )
             );
             $this->redirectToSettings();
+
             return;
         }
 
@@ -187,6 +194,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
         if ($result === null) {
             // exchangeCode already set the error.
             $this->redirectToSettings();
+
             return;
         }
 
@@ -196,6 +204,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
             (string) ($result['webhook_secret'] ?? '')
         )) {
             $this->redirectToSettings();
+
             return;
         }
 
@@ -229,6 +238,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                 'encode_failed',
                 $this->trans('Could not build connect request.', [], 'Modules.Emporiqa.Admin')
             );
+
             return null;
         }
 
@@ -238,6 +248,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                 'curl_init_failed',
                 $this->trans('Could not contact Emporiqa.', [], 'Modules.Emporiqa.Admin')
             );
+
             return null;
         }
         curl_setopt_array($ch, [
@@ -266,6 +277,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                 'network_error',
                 $this->trans('Network error talking to Emporiqa: %s', [$error], 'Modules.Emporiqa.Admin')
             );
+
             return null;
         }
 
@@ -278,6 +290,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                     'Modules.Emporiqa.Admin'
                 )
             );
+
             return null;
         }
 
@@ -287,6 +300,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
                 'bad_response',
                 $this->trans('Unexpected response from Emporiqa.', [], 'Modules.Emporiqa.Admin')
             );
+
             return null;
         }
 
@@ -412,12 +426,14 @@ class AdminEmporiqaConnectController extends ModuleAdminController
         // Configurable for staging; defaults to production.
         $stored = (string) Configuration::get('EMPORIQA_BASE_URL');
         $base = $stored !== '' ? $stored : self::DEFAULT_BASE_URL;
+
         return rtrim($base, '/');
     }
 
     private function shopOrigin(): string
     {
         $protocol = (Configuration::get('PS_SSL_ENABLED') || Tools::usingSecureMode()) ? 'https://' : 'http://';
+
         return rtrim($protocol . Tools::getShopDomainSsl(), '/');
     }
 
@@ -439,6 +455,7 @@ class AdminEmporiqaConnectController extends ModuleAdminController
         if (!empty($parts['query'])) {
             $path .= '?' . $parts['query'];
         }
+
         return $path;
     }
 

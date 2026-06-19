@@ -16,7 +16,7 @@ if (!defined('_PS_VERSION_')) {
 
 class EmporiqaSyncService
 {
-    const DEFAULT_BATCH_SIZE = 25;
+    public const DEFAULT_BATCH_SIZE = 25;
 
     /** @var EmporiqaWebhookClient */
     private $webhookClient;
@@ -33,7 +33,7 @@ class EmporiqaSyncService
     public function __construct(
         EmporiqaWebhookClient $webhookClient,
         EmporiqaProductFormatter $productFormatter,
-        EmporiqaPageFormatter $pageFormatter
+        EmporiqaPageFormatter $pageFormatter,
     ) {
         $this->webhookClient = $webhookClient;
         $this->productFormatter = $productFormatter;
@@ -84,6 +84,7 @@ class EmporiqaSyncService
                         if ($reason) {
                             $msg .= ' ' . $reason;
                         }
+
                         return [
                             'success' => false,
                             'error' => $msg,
@@ -104,7 +105,7 @@ class EmporiqaSyncService
                 'sessions' => $sessions,
                 'items_per_batch' => $this->batchSize,
             ];
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return [
                 'success' => false,
                 'error' => 'Sync init failed: ' . $e->getMessage(),
@@ -161,6 +162,7 @@ class EmporiqaSyncService
         if ($reason) {
             $msg .= ' ' . $reason;
         }
+
         return ['success' => false, 'message' => $msg, 'error' => $msg];
     }
 
@@ -339,7 +341,7 @@ class EmporiqaSyncService
                 random_int(0, 0x3FFF) | 0x8000,
                 random_int(0, 0xFFFF), random_int(0, 0xFFFF), random_int(0, 0xFFFF)
             );
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             // random_int can throw on a broken /dev/urandom; fall back to
             // a non-cryptographic id (sync sessions are server-internal,
             // collisions are recoverable).

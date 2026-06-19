@@ -15,7 +15,7 @@ if (!defined('_PS_VERSION_')) {
 
 class EmporiqaOrdertrackingModuleFrontController extends ModuleFrontController
 {
-    const TIMESTAMP_TOLERANCE = 300; // 5 minutes
+    public const TIMESTAMP_TOLERANCE = 300; // 5 minutes
 
     public $ssl = true;
 

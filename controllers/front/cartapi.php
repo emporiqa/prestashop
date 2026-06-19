@@ -109,7 +109,7 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
                         'cart' => null,
                     ];
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             PrestaShopLogger::addLog(
                 '[Emporiqa] Cart error: ' . $e->getMessage(),
                 3,

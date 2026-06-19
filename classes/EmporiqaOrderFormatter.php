@@ -100,6 +100,34 @@ class EmporiqaOrderFormatter
             ];
         }
 
+        // Shipping tracking. PrestaShop has no single "tracking URL" field: the
+        // number lives on OrderCarrier, and the URL is composed from the
+        // carrier's URL template ('@' is replaced by the number). Both stay
+        // empty until the order ships and the carrier URL is configured; the
+        // actionEmporiqaOrderTracking hook lets a merchant add/override their
+        // own (e.g. a third-party tracking link).
+        $trackingNumber = '';
+        $trackingUrl = '';
+        $carrierName = '';
+        $idOrderCarrier = (int) $order->getIdOrderCarrier();
+        if ($idOrderCarrier) {
+            $orderCarrier = new OrderCarrier($idOrderCarrier);
+            if (Validate::isLoadedObject($orderCarrier)) {
+                $trackingNumber = (string) $orderCarrier->tracking_number;
+            }
+        }
+        $carrier = new Carrier((int) $order->id_carrier);
+        if (Validate::isLoadedObject($carrier)) {
+            // PrestaShop stores the carrier name as the literal '0' to mean
+            // "use the shop name" (see core OrderLazyArray / delivery slip).
+            $carrierName = $carrier->name == '0'
+                ? (string) Configuration::get('PS_SHOP_NAME')
+                : (string) $carrier->name;
+            if ($trackingNumber !== '' && !empty($carrier->url)) {
+                $trackingUrl = str_replace('@', $trackingNumber, $carrier->url);
+            }
+        }
+
         return [
             'order_number' => $order->reference,
             'status' => $orderState ? (is_array($orderState->name) ? ($orderState->name[$langId] ?? reset($orderState->name) ?: '') : (string) $orderState->name) : '',
@@ -109,6 +137,9 @@ class EmporiqaOrderFormatter
             'payment_method' => $order->payment,
             'billing_address' => $billingData,
             'shipping_address' => $shippingData,
+            'carrier' => $carrierName,
+            'tracking_number' => $trackingNumber,
+            'tracking_url' => $trackingUrl,
             'items' => $items,
         ];
     }
