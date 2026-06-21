@@ -866,10 +866,97 @@ class EmporiqaProductFormatter
                 $entry['price_excl_tax'] = $currentExc;
             }
 
+            $tiers = $this->buildTierPrices($productId, $paId, $shopId, $currId, $priceContext, $currentInc);
+            if (!empty($tiers)) {
+                $entry['tier_prices'] = $tiers;
+            }
+
             $entries[] = $entry;
         }
 
         return $entries;
+    }
+
+    /**
+     * Map PrestaShop quantity-based specific prices (volume discounts) into the
+     * `tier_prices` array the assistant uses to quote "from X; Y each at 10+".
+     *
+     * Only tiers a PUBLIC shopper would see are exposed: the unidentified
+     * customer group and the default country, scoped to this shop and currency.
+     * Group- or country-restricted B2B tiers never reach the chat. Each tier's
+     * unit price is computed by PrestaShop itself at the break quantity, using
+     * the same arguments as `current_price` (incl. tax, reductions on, the
+     * currency-scoped context), so base and tier prices are comparable. Returns
+     * [] when the product has no quantity discounts, leaving non-tiered payloads
+     * byte-identical.
+     *
+     * @param int $productId
+     * @param int|null $paId Combination id, or null for the base product
+     * @param int|null $shopId
+     * @param int $currId
+     * @param Context $priceContext Currency-scoped context matching current_price
+     * @param float $currentInc The qty=1 incl-tax price (to drop no-op tiers)
+     *
+     * @return array List of ['min_quantity' => int, 'price' => float]
+     */
+    private function buildTierPrices($productId, $paId, $shopId, $currId, $priceContext, $currentInc)
+    {
+        if (!SpecificPrice::isFeatureActive()) {
+            return [];
+        }
+
+        $idShop = (int) ($shopId ?: $this->context->shop->id);
+        $idCountry = (int) Configuration::get('PS_COUNTRY_DEFAULT');
+        $idGroup = (int) Configuration::get('PS_UNIDENTIFIED_GROUP');
+
+        $discounts = SpecificPrice::getQuantityDiscounts(
+            (int) $productId,
+            $idShop,
+            (int) $currId,
+            $idCountry,
+            $idGroup,
+            $paId ? (int) $paId : null,
+            false,
+            0
+        );
+
+        if (empty($discounts)) {
+            return [];
+        }
+
+        $tiers = [];
+        $seen = [];
+        foreach ($discounts as $row) {
+            $fromQty = (int) $row['from_quantity'];
+            if ($fromQty <= 1 || isset($seen[$fromQty])) {
+                continue;
+            }
+            $seen[$fromQty] = true;
+
+            // PrestaShop applies the break's tax, reduction type and date window
+            // here, with the same arguments as current_price (only the quantity
+            // differs) so the prices are directly comparable.
+            $specificPrice = null;
+            $unit = (float) Product::getPriceStatic(
+                (int) $productId, true, $paId, 2, null, false, true, $fromQty, false,
+                null, null, null, $specificPrice, true, true, $priceContext
+            );
+
+            // Defensive: getQuantityDiscounts already excludes out-of-window
+            // breaks (it date-filters internally), and getPriceStatic also honors
+            // the window, so any break that resolves to the qty=1 price isn't an
+            // active discount. Drop those: a tier that doesn't actually change the
+            // price is noise to the assistant.
+            if ($unit > 0 && abs($unit - (float) $currentInc) > 0.005) {
+                $tiers[] = ['min_quantity' => $fromQty, 'price' => $unit];
+            }
+        }
+
+        usort($tiers, function ($a, $b) {
+            return $a['min_quantity'] - $b['min_quantity'];
+        });
+
+        return $tiers;
     }
 
     private function getProductBrand(Product $product)

@@ -15,11 +15,11 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 - **Closes sales**: Handles objections like "too expensive" by suggesting alternatives from your catalog, instead of a discount.
 - **Visual search**: Shoppers upload a photo in the widget; the chatbot describes it and finds matching products in your synced PrestaShop catalog (no extra config required).
 - **Brand-safe answers**: Every reply comes from your synced products and CMS pages, never from training data. Low-confidence questions hand off to your team.
-- **Product sync**: Real-time webhook sync of catalog products and combinations (variations). Parent/child relationships, attributes, prices, stock levels, and images are all included, along with PrestaShop's native `condition` (new/used/refurbished), `is_virtual` (digital products), and `available_for_order` (display-only / catalog-mode products) flags.
+- **Product sync**: Real-time webhook sync of catalog products and combinations (variations). Parent/child relationships, attributes, prices (including quantity-based volume discounts / tier pricing), stock levels, and images are all included, along with PrestaShop's native `condition` (new/used/refurbished), `is_virtual` (digital products), and `available_for_order` (display-only / catalog-mode products) flags.
 - **Page sync**: CMS pages synced with per-language content so the assistant can answer support questions from your own content.
 - **Chat widget**: Automatically embedded on your storefront in the correct language for the current visitor.
 - **In-chat cart**: Shoppers can add, update, remove items, and proceed to checkout directly from the chat.
-- **Order tracking**: HMAC-signed order lookup with customer email verification to protect customer data.
+- **Order tracking**: HMAC-signed order lookup with customer email verification to protect customer data. The response includes order status and items plus shipping details — carrier name, tracking number, and a tracking URL (composed from the carrier's URL template) once the order has shipped.
 - **Conversion tracking**: Captures chat session IDs at checkout and reports order completion events for revenue attribution.
 - **Multi-language**: Automatic language mapping. All translations are consolidated into single webhook payloads per entity.
 - **Multi-shop / multi-channel**: Auto-discovers shops and maps each to an Emporiqa channel using a slugified shop name (e.g. "My Shop" → `my-shop`). Products and pages assigned to multiple shops include per-channel links, prices, stock, and languages in a single payload. The channel is always passed to the widget and webhooks.
@@ -134,12 +134,13 @@ All webhooks are signed with HMAC-SHA256 via the `X-Webhook-Signature` header fo
 
 PrestaShop products with combinations are synced with their full variation structure. The parent product carries the shared name, description, and images, while each combination carries its specific attributes (size, color, etc.), price, and stock. The assistant understands "this jacket comes in blue and red, sizes S through XL."
 
-The full product (and combination) payload also includes a few PrestaShop-native merchandising flags so the assistant can describe and sell products accurately:
+The full product (and combination) payload also includes a few PrestaShop-native merchandising and pricing fields so the assistant can describe and sell products accurately:
 
 - `condition`: string or null; PrestaShop's product `condition` (`"new"`, `"used"`, or `"refurbished"`).
 - `is_virtual`: boolean; true for digital products with no shipping.
 - `available_for_order`: boolean; false for display-only / catalog-mode products. The assistant still describes these but won't add them to the cart.
 - `max_order_quantities`: per-channel dict (`{channel: int|null}`) of the maximum allowed per-order quantity. PrestaShop has no native per-order maximum, so this currently always ships `null` (no limit). The field is included for cross-platform contract parity, so a future custom source can populate it.
+- `tier_prices`: per-currency list of quantity-based volume discounts (`[{min_quantity, price}]`), present on a price entry only when the product or combination has PrestaShop quantity discounts configured. Each tier reflects the public (guest) shopper's unit price at that break, so the assistant can quote "X each at 10+". Group-, customer-, or country-restricted (B2B) tiers are intentionally excluded.
 
 These flags are part of the full product and combination payload, not the lightweight `product.availability` event. Pure stock/availability changes skip the full rebuild and send a compact `product.availability` event carrying only the identification number, SKU, per-channel availability statuses, and stock quantities, one entry per simple product or per combination.
 
@@ -160,7 +161,7 @@ Each active shop language is mapped to a standard language code. A single produc
 | `actionOrderStatusPostUpdate` | Sends order.completed for late payment captures |
 | `actionUpdateQuantity` | Emits a lightweight `product.availability` event when stock changes (no full product rebuild) |
 | `actionProductOutOfStock` | Emits a `product.availability` event on stock-boundary transitions |
-| `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-syncs the affected product on scheduled promos / per-group reductions |
+| `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-syncs the affected product on scheduled promos, per-group reductions, and quantity-based volume discounts (tier pricing) |
 | `actionObjectImage{Add,Update,Delete}After` | Re-syncs the affected product when product images change |
 | `actionObjectCategory{Update,Delete}After` | Logs an actionable warning so the merchant can run a full sync (catalog-wide impact) |
 | `actionObjectManufacturer{Update,Delete}After` | Logs an actionable warning so the merchant can run a full sync (catalog-wide impact) |

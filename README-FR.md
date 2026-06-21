@@ -15,11 +15,11 @@ Le chatbot se comporte comme un vendeur en ligne. Les clients décrivent ce qu'i
 - **Conclut des ventes** : Gère les objections comme « trop cher » en proposant des alternatives depuis votre catalogue, plutôt qu'une remise.
 - **Recherche visuelle** : Les clients téléversent une photo dans le widget ; le chatbot la décrit et trouve les produits correspondants dans votre catalogue PrestaShop synchronisé (aucune configuration supplémentaire requise).
 - **Réponses sûres pour la marque** : Chaque réponse provient de vos produits et pages CMS synchronisés, jamais de données d'entraînement. Les questions à faible confiance sont transférées à votre équipe.
-- **Sync produits** : Synchronisation en temps réel par webhooks des produits et déclinaisons (variations). Relations parent/enfant, attributs, prix, niveaux de stock et images inclus, ainsi que les indicateurs natifs PrestaShop `condition` (neuf/occasion/reconditionné), `is_virtual` (produits dématérialisés) et `available_for_order` (produits en mode catalogue / affichage seul).
+- **Sync produits** : Synchronisation en temps réel par webhooks des produits et déclinaisons (variations). Relations parent/enfant, attributs, prix (y compris les remises sur quantité / tarifs dégressifs), niveaux de stock et images inclus, ainsi que les indicateurs natifs PrestaShop `condition` (neuf/occasion/reconditionné), `is_virtual` (produits dématérialisés) et `available_for_order` (produits en mode catalogue / affichage seul).
 - **Sync pages** : Pages CMS synchronisées avec le contenu par langue pour que l'assistant puisse répondre aux questions de support à partir de votre propre contenu.
 - **Widget de chat** : Intégré automatiquement sur votre boutique dans la langue du visiteur.
 - **Panier dans le chat** : Les clients peuvent ajouter, modifier, supprimer des articles et passer à la commande directement depuis le chat.
-- **Suivi de commande** : Recherche de commande signée HMAC avec vérification email du client pour protéger les données.
+- **Suivi de commande** : Recherche de commande signée HMAC avec vérification email du client pour protéger les données. La réponse inclut le statut de la commande et les articles, ainsi que les informations d'expédition — nom du transporteur, numéro de suivi et URL de suivi (composée à partir du modèle d'URL du transporteur) une fois la commande expédiée.
 - **Suivi de conversion** : Capture l'ID de session chat au moment du paiement et rapporte les événements de finalisation de commande pour l'attribution du revenu.
 - **Multi-langue** : Mappage automatique des langues. Toutes les traductions sont consolidées en un seul payload webhook par entité.
 - **Multi-boutique / multi-canal** : Découverte automatique des boutiques, chacune mappée à un canal Emporiqa via un slug du nom de boutique (ex. "Ma Boutique" → `ma-boutique`). Les produits et pages assignés à plusieurs boutiques incluent les liens, prix, stock et langues par canal dans un seul payload. Le canal est toujours transmis au widget et aux webhooks.
@@ -135,12 +135,13 @@ Tous les webhooks sont signés avec HMAC-SHA256 via le header `X-Webhook-Signatu
 
 Les produits PrestaShop avec déclinaisons sont synchronisés avec leur structure complète de variations. Le produit parent porte le nom, la description et les images partagés, tandis que chaque déclinaison porte ses attributs spécifiques (taille, couleur, etc.), son prix et son stock. L'assistant comprend "cette veste existe en bleu et rouge, tailles S à XL."
 
-Le payload complet du produit (et des déclinaisons) inclut aussi quelques indicateurs natifs PrestaShop pour que l'assistant décrive et vende les produits avec précision :
+Le payload complet du produit (et des déclinaisons) inclut aussi quelques indicateurs natifs PrestaShop et champs de prix pour que l'assistant décrive et vende les produits avec précision :
 
 - `condition` : chaîne ou null ; la `condition` du produit PrestaShop (`"new"`, `"used"` ou `"refurbished"`).
 - `is_virtual` : booléen ; vrai pour les produits dématérialisés sans expédition.
 - `available_for_order` : booléen ; faux pour les produits en mode catalogue / affichage seul. L'assistant les décrit toujours mais ne les ajoute pas au panier.
 - `max_order_quantities` : dictionnaire par canal (`{canal: int|null}`) de la quantité maximale autorisée par commande. PrestaShop n'a pas de maximum natif par commande, donc ce champ envoie toujours `null` (aucune limite) pour l'instant. Il est inclus pour la parité de contrat entre plateformes, afin qu'une source personnalisée future puisse le renseigner.
+- `tier_prices` : liste par devise des remises sur quantité / tarifs dégressifs (`[{min_quantity, price}]`), présente sur une entrée de prix uniquement lorsque le produit ou la déclinaison a des remises sur quantité configurées dans PrestaShop. Chaque palier reflète le prix unitaire vu par le client public (visiteur) à ce seuil, afin que l'assistant puisse annoncer « X l'unité à partir de 10 ». Les paliers réservés à un groupe, un client ou un pays (B2B) sont volontairement exclus.
 
 Ces indicateurs font partie du payload complet produit et déclinaison, pas de l'événement léger `product.availability`. Les simples changements de stock/disponibilité évitent la reconstruction complète et envoient un événement compact `product.availability` ne portant que le numéro d'identification, le SKU, les statuts de disponibilité par canal et les quantités en stock, une entrée par produit simple ou par déclinaison.
 
@@ -161,7 +162,7 @@ Chaque langue active de la boutique est mappée à un code langue standard. Un p
 | `actionOrderStatusPostUpdate` | Envoie order.completed pour les captures de paiement tardives |
 | `actionUpdateQuantity` | Émet un événement léger `product.availability` quand le stock change (sans reconstruction complète du produit) |
 | `actionProductOutOfStock` | Émet un événement `product.availability` lors des transitions de seuil de stock |
-| `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-synchronise le produit concerné lors des promos programmées / réductions par groupe |
+| `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-synchronise le produit concerné lors des promos programmées, réductions par groupe et remises sur quantité (tarifs dégressifs) |
 | `actionObjectImage{Add,Update,Delete}After` | Re-synchronise le produit concerné quand ses images changent |
 | `actionObjectCategory{Update,Delete}After` | Enregistre un avertissement exploitable pour que le marchand lance une sync complète (impact à l'échelle du catalogue) |
 | `actionObjectManufacturer{Update,Delete}After` | Enregistre un avertissement exploitable pour que le marchand lance une sync complète (impact à l'échelle du catalogue) |
