@@ -342,6 +342,12 @@
 
             var processed = 0;
             var batchIndex = 0;
+            // Per-entity failure/success tracking: sessions with failed
+            // batches must NOT be completed, or the backend deletes the
+            // unseen items from the remote catalog.
+            var entityFailures = {};
+            var entitySynced = {};
+            var completionErrors = 0;
 
             function processBatch() {
                 if (syncCancelled) {
@@ -367,8 +373,9 @@
                     page: work.page,
                     items_per_batch: work.items_per_batch
                 }, function (ok, batchResponse) {
-                    if (ok && batchResponse && batchResponse.success !== false) {
+                    if (ok && batchResponse && batchResponse.success) {
                         processed += batchResponse.processed || 0;
+                        entitySynced[work.entity] = (entitySynced[work.entity] || 0) + (batchResponse.processed || 0);
                         addLogEntry(
                             sprintf(
                                 'Processed %1$d items (%2$d events) for %3$s',
@@ -376,9 +383,10 @@
                                 batchResponse.events || 0,
                                 work.entity
                             ),
-                            batchResponse.success ? 'info' : 'warning'
+                            'info'
                         );
                     } else {
+                        entityFailures[work.entity] = (entityFailures[work.entity] || 0) + 1;
                         var batchReason = (batchResponse && (batchResponse.error || batchResponse.message)) || '';
                         addLogEntry(
                             sprintf('Batch failed for %1$s', work.entity) + (batchReason ? '. ' + batchReason : ''),
@@ -396,15 +404,46 @@
 
             function completeSessions(sessionsList, idx) {
                 if (idx >= sessionsList.length) {
-                    updateProgress(100);
-                    addLogEntry('Sync completed successfully!', 'success');
-                    var baseUrl = (window.emporiqaSyncConfig || {}).platformBaseUrl || 'https://emporiqa.com';
-                    addSyncCompleteMessage(baseUrl);
+                    if (Object.keys(entityFailures).length > 0 || completionErrors > 0) {
+                        addLogEntry(
+                            'Sync finished with errors. Sessions with failed batches were NOT completed, so nothing was deleted on Emporiqa. Resolve the errors and run the sync again.',
+                            'error'
+                        );
+                    } else {
+                        updateProgress(100);
+                        addLogEntry('Sync completed successfully!', 'success');
+                        var baseUrl = (window.emporiqaSyncConfig || {}).platformBaseUrl || 'https://emporiqa.com';
+                        addSyncCompleteMessage(baseUrl);
+                    }
                     setSyncRunning(false);
                     return;
                 }
 
                 var sess = sessionsList[idx];
+
+                // Never complete a session that had a failed batch (the
+                // backend would delete the unseen items) or that synced
+                // nothing at all. The server enforces the same guard.
+                if (entityFailures[sess.entity]) {
+                    addLogEntry(
+                        sprintf(
+                            'Skipped completing the %1$s session: %2$d batch(es) failed. The session was left open so no items get deleted on Emporiqa.',
+                            sess.entity,
+                            entityFailures[sess.entity]
+                        ),
+                        'warning'
+                    );
+                    completeSessions(sessionsList, idx + 1);
+                    return;
+                }
+                if (!(entitySynced[sess.entity] > 0)) {
+                    addLogEntry(
+                        sprintf('Skipped completing the %1$s session: no items were synced.', sess.entity),
+                        'warning'
+                    );
+                    completeSessions(sessionsList, idx + 1);
+                    return;
+                }
 
                 ajaxPost(syncUrl, {
                     ajax: 1,
@@ -419,6 +458,7 @@
                             'success'
                         );
                     } else {
+                        completionErrors++;
                         var completeReason = (completeResponse && (completeResponse.error || completeResponse.message)) || '';
                         addLogEntry(
                             sprintf('Failed to complete %1$s session', sess.entity) + (completeReason ? '. ' + completeReason : ''),

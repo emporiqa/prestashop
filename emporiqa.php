@@ -91,7 +91,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.2.6';
+        $this->version = '1.2.7';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -361,6 +361,13 @@ class Emporiqa extends Module
             }
         }
 
+        // Per-session sync guard rows (1.2.7+, EMPORIQA_SSN_<hash>) are
+        // transient global state — always safe to drop.
+        Db::getInstance()->execute(
+            'DELETE FROM `' . _DB_PREFIX_ . 'configuration` '
+            . "WHERE `name` LIKE '" . pSQL(EmporiqaSyncService::SESSION_STATS_PREFIX) . "%'"
+        );
+
         return true;
     }
 
@@ -493,6 +500,11 @@ class Emporiqa extends Module
         Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING_EMAIL', 1);
         Configuration::updateGlobalValue('EMPORIQA_CART_ENABLED', 1);
         Configuration::updateGlobalValue('EMPORIQA_BATCH_SIZE', $batchSize);
+
+        // Cached storefront pages were rendered with the old configuration
+        // (possibly without the widget at all) — drop them so the widget
+        // state changes take effect immediately.
+        Tools::clearSmartyCache();
 
         return $this->displayConfirmation($this->l('Settings saved. To sync your products and pages, go to the Sync tab.'));
     }
@@ -669,7 +681,7 @@ class Emporiqa extends Module
         $baseDomain = isset($parsed['host']) ? $parsed['host'] : 'emporiqa.com';
         $widgetUrl = 'https://' . $baseDomain . '/chat/embed/?' . http_build_query($queryParams);
 
-        $cartToken = Tools::getToken(false);
+        $cartToken = $this->getCartApiToken();
         $cartApiUrl = $this->context->link->getModuleLink('emporiqa', 'cartapi');
         $checkoutUrl = $this->context->link->getPageLink('order');
 
@@ -684,6 +696,53 @@ class Emporiqa extends Module
         ]);
 
         return $this->display(__FILE__, 'views/templates/hook/header.tpl');
+    }
+
+    /**
+     * Per-visitor CSRF token for the cart API.
+     *
+     * Tools::getToken(false) hashes customer id + password, which for
+     * guests collapses to one constant token shared by every anonymous
+     * visitor — any guest could forge cart mutations against any other
+     * guest. Instead, bind the token to a random nonce stored in the
+     * visitor's (encrypted and signed) PrestaShop cookie, making it
+     * unique per visitor for guests and customers alike.
+     *
+     * @param bool $mintNonce set false when validating so a request
+     *                        without an existing nonce fails closed
+     *                        instead of minting one
+     *
+     * @return string empty string when no nonce exists and minting is off
+     */
+    public function getCartApiToken($mintNonce = true)
+    {
+        $cookie = $this->context->cookie;
+
+        // Cookie fields are magic properties; use the explicit accessors
+        // so static analysis can follow them.
+        $nonce = $cookie->__isset('emporiqa_cart_nonce') ? (string) $cookie->__get('emporiqa_cart_nonce') : '';
+
+        if ($nonce === '') {
+            if (!$mintNonce) {
+                return '';
+            }
+            try {
+                $nonce = bin2hex(random_bytes(16));
+            } catch (Exception $e) {
+                // random_bytes can throw on a broken /dev/urandom; fall back
+                // to a weaker per-visitor value rather than breaking every
+                // storefront page render.
+                $nonce = md5(uniqid((string) mt_rand(), true));
+            }
+            $cookie->__set('emporiqa_cart_nonce', $nonce);
+            $cookie->write();
+        }
+
+        $customerId = ($this->context->customer && $this->context->customer->id)
+            ? (int) $this->context->customer->id
+            : 0;
+
+        return Tools::hash('emporiqa-cartapi:' . $nonce . ':' . $customerId);
     }
 
     // -------------------------------------------------------------------------

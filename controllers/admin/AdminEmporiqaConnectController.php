@@ -340,6 +340,10 @@ class AdminEmporiqaConnectController extends ModuleAdminController
         Configuration::updateGlobalValue('EMPORIQA_CART_ENABLED', 1);
         Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING', 1);
 
+        // Pages cached before the connect were rendered without the widget
+        // (no store id yet) — drop them so the widget appears immediately.
+        Tools::clearSmartyCache();
+
         return true;
     }
 

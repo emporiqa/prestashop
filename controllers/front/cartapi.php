@@ -143,9 +143,25 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
 
     private function validateCsrfToken()
     {
-        $token = Tools::getValue('token', '');
+        $token = (string) Tools::getValue('token', '');
+        if ($token === '') {
+            return false;
+        }
 
-        return !empty($token) && $token === Tools::getToken(false);
+        $module = $this->module;
+        if (!$module instanceof Emporiqa) {
+            return false;
+        }
+
+        // Per-visitor token bound to a nonce in the encrypted PS cookie.
+        // No nonce means the widget never rendered for this visitor (or
+        // cookies are blocked) — fail closed rather than minting one.
+        $expected = $module->getCartApiToken(false);
+        if ($expected === '') {
+            return false;
+        }
+
+        return hash_equals($expected, $token);
     }
 
     private function ajaxResponse(array $data)
