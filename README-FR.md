@@ -8,6 +8,8 @@ Le chatbot se comporte comme un vendeur en ligne. Les clients décrivent ce qu'i
 
 [![Widget de chat Emporiqa recommandant des écouteurs sans fil depuis le catalogue de la boutique, avec une fiche produit affichant prix, stock et bouton d'ajout au panier](docs/images/product-search.jpg)](https://demo.emporiqa.com)
 
+[![Regardez la démo de 30 secondes sur YouTube : Emporiqa recommande un produit, gère une objection et l'ajoute au panier](https://img.youtube.com/vi/txg-O_aTx0s/maxresdefault.jpg)](https://www.youtube.com/watch?v=txg-O_aTx0s)
+
 > **[Présentation de l'intégration](https://emporiqa.com/fr/integrations/prestashop/)** · **[Documentation complète](https://emporiqa.com/fr/docs/prestashop/)** · **[Démo en ligne](https://demo.emporiqa.com)** · **[Tarifs](https://emporiqa.com/fr/pricing/)**
 
 ## Fonctionnalités
@@ -19,7 +21,7 @@ Le chatbot se comporte comme un vendeur en ligne. Les clients décrivent ce qu'i
 - **Sync pages** : Pages CMS synchronisées avec le contenu par langue pour que l'assistant puisse répondre aux questions de support à partir de votre propre contenu.
 - **Widget de chat** : Intégré automatiquement sur votre boutique dans la langue du visiteur.
 - **Panier dans le chat** : Les clients peuvent ajouter, modifier, supprimer des articles et passer à la commande directement depuis le chat.
-- **Suivi de commande** : Recherche de commande signée HMAC avec vérification email du client pour protéger les données. La réponse inclut le statut de la commande et les articles, ainsi que les informations d'expédition — nom du transporteur, numéro de suivi et URL de suivi (composée à partir du modèle d'URL du transporteur) une fois la commande expédiée.
+- **Suivi de commande** : Recherche de commande signée HMAC avec vérification email du client pour protéger les données. La réponse inclut le statut de la commande et les articles, ainsi que les informations d'expédition : nom du transporteur, numéro de suivi et URL de suivi (composée à partir du modèle d'URL du transporteur) une fois la commande expédiée.
 - **Suivi de conversion** : Capture l'ID de session chat au moment du paiement et rapporte les événements de finalisation de commande pour l'attribution du revenu.
 - **Multi-langue** : Mappage automatique des langues. Toutes les traductions sont consolidées en un seul payload webhook par entité.
 - **Multi-boutique / multi-canal** : Découverte automatique des boutiques, chacune mappée à un canal Emporiqa via un slug du nom de boutique (ex. "Ma Boutique" → `ma-boutique`). Les produits et pages assignés à plusieurs boutiques incluent les liens, prix, stock et langues par canal dans un seul payload. Le canal est toujours transmis au widget et aux webhooks.

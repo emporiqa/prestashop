@@ -8,6 +8,8 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 
 [![Emporiqa chat widget recommending wireless headphones from the store's catalog, with a product card showing price, stock, and an add-to-cart button](docs/images/product-search.jpg)](https://demo.emporiqa.com)
 
+[![Watch the 30-second demo on YouTube: Emporiqa recommends a product, handles an objection, and adds it to the cart](https://img.youtube.com/vi/as54_uvk038/maxresdefault.jpg)](https://www.youtube.com/watch?v=as54_uvk038)
+
 > **[Integration overview](https://emporiqa.com/integrations/prestashop/)** · **[Full Documentation](https://emporiqa.com/docs/prestashop/)** · **[Live Demo](https://demo.emporiqa.com)** · **[Pricing](https://emporiqa.com/pricing/)**
 
 ## Features
@@ -19,7 +21,7 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 - **Page sync**: CMS pages synced with per-language content so the assistant can answer support questions from your own content.
 - **Chat widget**: Automatically embedded on your storefront in the correct language for the current visitor.
 - **In-chat cart**: Shoppers can add, update, remove items, and proceed to checkout directly from the chat.
-- **Order tracking**: HMAC-signed order lookup with customer email verification to protect customer data. The response includes order status and items plus shipping details — carrier name, tracking number, and a tracking URL (composed from the carrier's URL template) once the order has shipped.
+- **Order tracking**: HMAC-signed order lookup with customer email verification to protect customer data. The response includes order status and items plus shipping details, carrier name, tracking number, and a tracking URL (composed from the carrier's URL template) once the order has shipped.
 - **Conversion tracking**: Captures chat session IDs at checkout and reports order completion events for revenue attribution.
 - **Multi-language**: Automatic language mapping. All translations are consolidated into single webhook payloads per entity.
 - **Multi-shop / multi-channel**: Auto-discovers shops and maps each to an Emporiqa channel using a slugified shop name (e.g. "My Shop" → `my-shop`). Products and pages assigned to multiple shops include per-channel links, prices, stock, and languages in a single payload. The channel is always passed to the widget and webhooks.
