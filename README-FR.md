@@ -8,9 +8,11 @@ Le chatbot se comporte comme un vendeur en ligne. Les clients décrivent ce qu'i
 
 [![Widget de chat Emporiqa recommandant des écouteurs sans fil depuis le catalogue de la boutique, avec une fiche produit affichant prix, stock et bouton d'ajout au panier](docs/images/product-search.jpg)](https://demo.emporiqa.com)
 
-[![Regardez la démo de 30 secondes sur YouTube : Emporiqa recommande un produit, gère une objection et l'ajoute au panier](https://img.youtube.com/vi/txg-O_aTx0s/maxresdefault.jpg)](https://www.youtube.com/watch?v=txg-O_aTx0s)
-
 > **[Présentation de l'intégration](https://emporiqa.com/fr/integrations/prestashop/)** · **[Documentation complète](https://emporiqa.com/fr/docs/prestashop/)** · **[Démo en ligne](https://demo.emporiqa.com)** · **[Tarifs](https://emporiqa.com/fr/pricing/)**
+
+**Regardez la démo de 30 secondes** (recommande, gère les objections, conclut) :
+
+[![Regardez la démo de 30 secondes sur YouTube : Emporiqa recommande un produit, gère une objection et l'ajoute au panier](https://img.youtube.com/vi/txg-O_aTx0s/maxresdefault.jpg)](https://www.youtube.com/watch?v=txg-O_aTx0s)
 
 ## Fonctionnalités
 
