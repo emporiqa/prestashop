@@ -105,12 +105,15 @@ emporiqa/
 │   ├── EmporiqaSyncService.php       # Bulk sync orchestration
 │   └── EmporiqaWebhookClient.php     # HTTP client for webhook delivery
 ├── controllers/
-│   ├── admin/                        # Admin controller (menu tab redirect)
+│   ├── admin/
+│   │   ├── AdminEmporiqaController.php        # Admin menu tab redirect
+│   │   └── AdminEmporiqaConnectController.php # One-click connect handshake
 │   └── front/
 │       ├── cartapi.php               # Cart API endpoint (/module/emporiqa/cartapi)
 │       └── ordertracking.php         # Order tracking endpoint (/module/emporiqa/ordertracking)
 ├── views/
 │   ├── css/admin.css                 # Admin configuration styles
+│   ├── img/                          # Module images (rectangular logo)
 │   ├── js/
 │   │   ├── admin-sync.js            # Bulk sync UI with progress tracking
 │   │   └── front-cart-handler.js    # Chat widget cart integration
