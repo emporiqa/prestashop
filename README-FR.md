@@ -39,7 +39,7 @@ Le chatbot se comporte comme un vendeur en ligne. Les clients décrivent ce qu'i
 
 ## Installation
 
-1. Téléchargez le module depuis le [PrestaShop Addons Marketplace](https://addons.prestashop.com/).
+1. Téléchargez le module sur [PrestaShop Addons](https://addons.prestashop.com/) (payant) ou sur [GitHub](https://github.com/emporiqa/prestashop) (gratuit).
 2. Dans votre back office PrestaShop, allez dans **Modules > Gestionnaire de modules > Téléverser un module** et envoyez `emporiqa.zip`.
 3. Cliquez sur **Configurer** sur le module Emporiqa.
 4. Cliquez sur **Se connecter à Emporiqa**. Un nouvel onglet s'ouvre sur emporiqa.com. Créez un compte gratuit (sans carte, 25 $ de crédit à l'inscription) ou connectez-vous si vous en avez déjà un, puis choisissez la boutique à connecter (ou créez-en une nouvelle). Le module est connecté à votre retour.
@@ -194,7 +194,7 @@ Les développeurs peuvent se brancher sur le pipeline de sync pour personnaliser
 
 ## Tarifs
 
-Le module est gratuit. Emporiqa fonctionne en paiement à l'usage : 0 $/mois de base + 0,25 $/conversation. Les nouveaux comptes reçoivent 25 $ de crédit à l'inscription (environ 100 conversations offertes), sans carte requise au moment de la création du compte. Une fois le crédit épuisé, le plafond mensuel par défaut est de 59 $, ajustable depuis le tableau de bord de facturation. Option Enterprise pour les catalogues de plus de 30 000 produits. Tarifs complets sur [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/).
+Le module est payant sur PrestaShop Addons et gratuit sur [GitHub](https://github.com/emporiqa/prestashop). Dans les deux cas, le service Emporiqa est facturé à l'usage : 0 $/mois de base + 0,25 $/conversation. Les nouveaux comptes reçoivent 25 $ de crédit à l'inscription (environ 100 conversations offertes), sans carte requise au moment de la création du compte. Une fois le crédit épuisé, le plafond mensuel par défaut est de 59 $, ajustable depuis le tableau de bord de facturation. Option Enterprise pour les catalogues de plus de 100 000 produits. Tarifs complets sur [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/).
 
 Emporiqa fonctionne aussi avec Drupal Commerce, WooCommerce, Magento, Shopware, Sylius, et avec toute boutique via API webhook. Un seul compte Emporiqa et un tableau de bord pour toutes.
 

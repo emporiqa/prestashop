@@ -116,7 +116,25 @@ class EmporiqaOrderFormatter
                 $trackingNumber = (string) $orderCarrier->tracking_number;
             }
         }
-        $carrier = new Carrier((int) $order->id_carrier);
+        // Loaded WITH the order's language: `delay` is a multilang field, so
+        // without $langId it comes back as an array (or empty) and the
+        // shopper is told nothing.
+        //
+        // The fallback is NOT belt-and-braces. `Carrier` is `multilang_shop`,
+        // so EntityMapper::load adds `WHERE b.id_shop = <context shop>` to the
+        // carrier_lang join and degrades it to an INNER JOIN. `orders` is not
+        // a shop-associated table and Order::getByReference() returns
+        // cross-shop rows, so a shop-1 order looked up in shop-2 context finds
+        // no lang row and the WHOLE object fails to load -- taking the carrier
+        // NAME and the tracking URL with it, which used to work. Falling back
+        // to the shop-agnostic constructor keeps those two and costs only the
+        // delay text, which is the right thing to lose.
+        $carrierDelay = '';
+        $carrier = new Carrier((int) $order->id_carrier, $langId);
+        $carrierHasLanguage = Validate::isLoadedObject($carrier);
+        if (!$carrierHasLanguage) {
+            $carrier = new Carrier((int) $order->id_carrier);
+        }
         if (Validate::isLoadedObject($carrier)) {
             // PrestaShop stores the carrier name as the literal '0' to mean
             // "use the shop name" (see core OrderLazyArray / delivery slip).
@@ -126,7 +144,51 @@ class EmporiqaOrderFormatter
             if ($trackingNumber !== '' && !empty($carrier->url)) {
                 $trackingUrl = str_replace('@', $trackingNumber, $carrier->url);
             }
+            // The carrier's own delivery-time text, e.g. "Delivery next day!".
+            // This is PrestaShop's NATIVE estimated-delivery surface: it is
+            // what the shopper was shown at checkout when they picked this
+            // carrier, and it exists on every order in every shop. Free text,
+            // not a date, and merchant-written, so it is passed through as-is
+            // rather than parsed.
+            //
+            // Read ONLY from the language-scoped object. `delay` is the sole
+            // `lang => true` field in Carrier::$definition, and EntityMapper
+            // hydrates a multilang field as a SCALAR when an id_lang is given
+            // and as an ARRAY keyed by language id when it is not. That
+            // behaviour is identical on 8.1 and 9.0.2, which is why the rule
+            // is stated against the mapper rather than against the docblock:
+            // CarrierCore::$delay is documented `@var string` on 8.1 but
+            // `@var string[]|string` on 9.0.2, so a claim about the docblock
+            // would be wrong on half the supported range.
+            //
+            // Hence the narrowing annotation instead of a bare cast: casting a
+            // `string[]|string` to string is a level-0 InvalidCastRule error
+            // for the Addons static analysis on 9.0.2.
+            if ($carrierHasLanguage) {
+                /** @var string $delay */
+                $delay = $carrier->delay;
+                $carrierDelay = $delay;
+            }
         }
+
+        // `$order->delivery_date` is NOT sent, and that is deliberate.
+        //
+        // Its name promises a delivery date. It is not one. Core stamps it
+        // with the CURRENT time on every transition into a state whose
+        // `delivery` flag is set (OrderHistory::changeIdOrderState ->
+        // Order::setDelivery), and on a stock shop that includes "Processing
+        // in progress" -- so for most in-flight orders it holds the moment
+        // the merchant started picking, days before anything is delivered.
+        // OrderHistory even re-stamps it "even if it was already set by
+        // another state change", and Order::setDelivery calls it "keep it for
+        // backward compatibility, to remove on 1.6 version".
+        //
+        // The consumer is an AI salesperson that reads fields to shoppers by
+        // name, so a key called `delivery_date` carrying a picking timestamp
+        // would be recited as a delivery promise. A merchant with a REAL
+        // estimated delivery date should add it through the
+        // actionEmporiqaOrderTracking hook fired by
+        // controllers/front/ordertracking.php, where it means what it says.
 
         return [
             'order_number' => $order->reference,
@@ -138,6 +200,7 @@ class EmporiqaOrderFormatter
             'billing_address' => $billingData,
             'shipping_address' => $shippingData,
             'carrier' => $carrierName,
+            'carrier_delay' => $carrierDelay,
             'tracking_number' => $trackingNumber,
             'tracking_url' => $trackingUrl,
             'items' => $items,

@@ -18,7 +18,7 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 
 - **Closes sales**: Handles objections like "too expensive" by suggesting alternatives from your catalog, instead of a discount.
 - **Visual search**: Shoppers upload a photo in the widget; the chatbot describes it and finds matching products in your synced PrestaShop catalog (no extra config required).
-- **Brand-safe answers**: Every reply comes from your synced products and CMS pages, never from training data. Low-confidence questions hand off to your team.
+- **Brand-safe answers**: Ask it for a product the store does not sell and it says so, instead of inventing one. Product facts come from the synced catalog and CMS pages, not from the model's training data. Low-confidence questions hand off to your team. [Unedited examples](https://emporiqa.com/proof/).
 - **Product sync**: Real-time webhook sync of catalog products and combinations (variations). Parent/child relationships, attributes, prices (including quantity-based volume discounts / tier pricing), stock levels, and images are all included, along with PrestaShop's native `condition` (new/used/refurbished), `is_virtual` (digital products), and `available_for_order` (display-only / catalog-mode products) flags.
 - **Page sync**: CMS pages synced with per-language content so the assistant can answer support questions from your own content.
 - **Chat widget**: Automatically embedded on your storefront in the correct language for the current visitor.
@@ -34,12 +34,12 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 ## Requirements
 
 - PrestaShop 8.1+ or 9.x
-- PHP 7.4+
+- PHP 8.0+
 - An [Emporiqa account](https://emporiqa.com/platform/create-store/). Sign up with no card; $25 of signup credit (~100 free conversations) auto-applied
 
 ## Installation
 
-1. Download the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/).
+1. Get the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/) (paid) or from [GitHub](https://github.com/emporiqa/prestashop) (free).
 2. In your PrestaShop back office, go to **Modules > Module Manager > Upload a Module** and upload `emporiqa.zip`.
 3. Click **Configure** on the Emporiqa module.
 4. Click **Connect to Emporiqa**. A new tab opens on emporiqa.com. Create a free account (no card required, $25 of signup credit) or sign in if you already have one, then pick the store you want to connect (or create a new one). The module is connected when you return.
@@ -193,7 +193,7 @@ Developers can hook into the sync pipeline to customize payloads or cancel syncs
 
 ## Pricing
 
-The module is free. Emporiqa is Pay-as-you-go: $0/month base + $0.25/conversation. New accounts get $25 of signup credit (about 100 conversations on us), no card required at signup. After the credit, the monthly cap defaults to $59 and is customer-adjustable from the billing dashboard. Enterprise option for catalogs over 30,000 products. Full pricing at [emporiqa.com/pricing/](https://emporiqa.com/pricing/).
+The module is paid on PrestaShop Addons and free on [GitHub](https://github.com/emporiqa/prestashop). Either way, the Emporiqa service itself is Pay-as-you-go: $0/month base + $0.25/conversation. New accounts get $25 of signup credit (about 100 conversations on us), no card required at signup. After the credit, the monthly cap defaults to $59 and is customer-adjustable from the billing dashboard. Enterprise option for catalogs over 100,000 products. Full pricing at [emporiqa.com/pricing/](https://emporiqa.com/pricing/).
 
 Emporiqa also works with Drupal Commerce, WooCommerce, Magento, Shopware, Sylius, and any store via webhook API. One Emporiqa account and dashboard runs across all of them.
 
@@ -206,3 +206,8 @@ Emporiqa also works with Drupal Commerce, WooCommerce, Magento, Shopware, Sylius
 ## License
 
 [Academic Free License 3.0 (AFL-3.0)](https://opensource.org/licenses/AFL-3.0)
+
+
+## Who makes Emporiqa
+
+Emporiqa is built by [Rosel Group LTD](https://emporiqa.com/about/), an EU company based in Sofia, Bulgaria, founded by [Rosen Hristov](https://www.linkedin.com/in/rosen-hristov/), who has built e-commerce software for 15 years. It is GDPR-compliant and never uses shopper data to train AI models. Pricing is pay-as-you-go: $0.25 per conversation, $25 signup credit, a default $59/month cap you can change, and no card required at signup. Emporiqa runs on self-hosted platforms (WooCommerce, Magento and Adobe Commerce, PrestaShop, Drupal Commerce, Shopware 6, Sylius); it does not run on Shopify. Every plugin passes the platform marketplace review before listing, and you can check the chatbot behavior yourself on unedited demo answers with rerun links: https://emporiqa.com/proof/
