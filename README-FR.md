@@ -17,7 +17,7 @@ Le chatbot IA [Emporiqa](https://emporiqa.com) pour PrestaShop 8.1+ et 9 est un 
 
 ## Installation
 
-1. Téléchargez le module sur [PrestaShop Addons](https://addons.prestashop.com/) (payant) ou sur [GitHub](https://github.com/emporiqa/prestashop) (gratuit).
+1. Téléchargez le module sur [PrestaShop Addons](https://addons.prestashop.com/fr/front-office-features-prestashop-modules/97345-emporiqa-chat-assistant.html) (payant) ou sur [GitHub](https://github.com/emporiqa/prestashop) (gratuit).
 2. Dans votre back office PrestaShop, allez dans **Modules > Gestionnaire de modules > Téléverser un module** et envoyez `emporiqa.zip`.
 3. Cliquez sur **Configurer** sur le module Emporiqa.
 4. Cliquez sur **Se connecter à Emporiqa**. Un nouvel onglet s'ouvre sur emporiqa.com. Créez un compte gratuit (sans carte, 25 $ de crédit à l'inscription) ou connectez-vous si vous en avez déjà un, puis choisissez la boutique à connecter (ou créez-en une nouvelle). Le module est connecté à votre retour.
