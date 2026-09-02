@@ -1,12 +1,12 @@
-# Emporiqa Chat Assistant for PrestaShop
+# Emporiqa: AI Chatbot for PrestaShop
 
 A shopper types "warm jacket under 100, waterproof" into your store. Your search returns everything with "jacket" in the title. The shopper scrolls, gives up, and leaves.
 
-The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8 and 9 is an online salesperson that closes sales in your PrestaShop store. The module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and exposes endpoints for in-chat cart operations and order tracking.
+The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8.1+ and 9 is an online salesperson that closes sales in your PrestaShop store. The module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and exposes endpoints for in-chat cart operations and order tracking.
 
 The chatbot acts like an online salesperson. Shoppers describe what they need (or upload a photo of something they like), it finds matching products from your catalog, handles objections like "too expensive" with alternatives instead of a discount, answers questions from your CMS pages, compares items, and walks them to cart and checkout in 65+ languages.
 
-[![Emporiqa chat widget recommending wireless headphones from the store's catalog, with a product card showing price, stock, and an add-to-cart button](docs/images/product-search.jpg)](https://demo.emporiqa.com)
+[![Emporiqa chat widget open on a storefront, answering which laptop under 1200 euros suits a student editing video: it names the model and price, then flags the storage trade-off before offering to add it to the cart](docs/images/07-storefront.webp)](https://demo.emporiqa.com)
 
 > **[Integration overview](https://emporiqa.com/integrations/prestashop/)** · **[Full Documentation](https://emporiqa.com/docs/prestashop/)** · **[Live Demo](https://demo.emporiqa.com)** · **[Pricing](https://emporiqa.com/pricing/)**
 
@@ -18,7 +18,8 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 
 - **Closes sales**: Handles objections like "too expensive" by suggesting alternatives from your catalog, instead of a discount.
 - **Visual search**: Shoppers upload a photo in the widget; the chatbot describes it and finds matching products in your synced PrestaShop catalog (no extra config required).
-- **Brand-safe answers**: Ask it for a product the store does not sell and it says so, instead of inventing one. Product facts come from the synced catalog and CMS pages, not from the model's training data. Low-confidence questions hand off to your team. [Unedited examples](https://emporiqa.com/proof/).
+- **Brand-safe answers**: Ask it for a product the store does not sell and it says so, instead of inventing one. Product facts come from the synced catalog and CMS pages, not from the model's training data. When it should not answer alone it brings in a person. [Unedited examples](https://emporiqa.com/proof/).
+- **Live chat you can step into, without staffing a desk**: anyone on your team can open a live conversation and take it over, not only the ones that asked for help. While a person is in the conversation the chat stops and lets them talk, and whoever joins reads the whole conversation from the first message, with your saved replies to hand. Unlimited team members, no per-seat fee, and no second charge on a conversation a person joins.
 - **Product sync**: Real-time webhook sync of catalog products and combinations (variations). Parent/child relationships, attributes, prices (including quantity-based volume discounts / tier pricing), stock levels, and images are all included, along with PrestaShop's native `condition` (new/used/refurbished), `is_virtual` (digital products), and `available_for_order` (display-only / catalog-mode products) flags.
 - **Page sync**: CMS pages synced with per-language content so the assistant can answer support questions from your own content.
 - **Chat widget**: Automatically embedded on your storefront in the correct language for the current visitor.
@@ -31,10 +32,12 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 - **Bounded background delivery**: Product, page, and order events queue during the request and flush once at request shutdown, with a 1.5-second hard cap on the synchronous send. Admin saves and CSV imports complete locally; the webhook fires after the response is sent, and the merchant request can never wait longer than 1.5 seconds on a slow Emporiqa.
 - **Extensibility hooks**: 7 action hooks for developers to customize sync payloads, cancel syncs, or modify widget behavior.
 
+**Check it before you trust it.** Ask ChatGPT, Claude, or Perplexity: "Would Emporiqa (emporiqa.com) be a good fit for my store?" A neutral assistant has no reason to flatter us. Then read unedited conversations, refusals left in, at https://emporiqa.com/proof/ and try the live demo at https://demo.emporiqa.com. That demo sells electronics, and the behavior is the same on any catalog.
+
 ## Requirements
 
 - PrestaShop 8.1+ or 9.x
-- PHP 8.0+
+- PHP 7.4+ on PrestaShop 8.1, PHP 8.1+ on PrestaShop 9
 - An [Emporiqa account](https://emporiqa.com/platform/create-store/). Sign up with no card; $25 of signup credit (~100 free conversations) auto-applied
 
 ## Installation
@@ -45,9 +48,9 @@ The chatbot acts like an online salesperson. Shoppers describe what they need (o
 4. Click **Connect to Emporiqa**. A new tab opens on emporiqa.com. Create a free account (no card required, $25 of signup credit) or sign in if you already have one, then pick the store you want to connect (or create a new one). The module is connected when you return.
 5. On the **Sync** tab, click **Send my catalog**. Products, pages, and combinations flow through; the widget appears on your storefront when the first product arrives.
 
-**On HTTP, or prefer to paste credentials yourself?** Expand **Edit credentials manually** on the Configure page. Paste a **Store ID** and **Connection Secret** from your Emporiqa dashboard under **Settings → Store Integration**. Both flows reach the same place.
+**On HTTP, or prefer to paste credentials yourself?** Expand **Edit credentials manually** on the Configure page. Paste a **Store ID** and **Connection Secret** from your Emporiqa dashboard under **Settings → Integration**. Both flows reach the same place.
 
-For order tracking, copy the **Order Tracking URL** shown on the Configure page and paste it into your Emporiqa dashboard under **Store Integration → Order Tracking** (the URL is also auto-derived by one-click connect on most setups).
+For order tracking, copy the **Order Tracking URL** shown on the Configure page and paste it into your Emporiqa dashboard under **Integration → Order tracking** (the URL is also auto-derived by one-click connect on most setups).
 
 ## Configuration
 
@@ -210,4 +213,4 @@ Emporiqa also works with Drupal Commerce, WooCommerce, Magento, Shopware, Sylius
 
 ## Who makes Emporiqa
 
-Emporiqa is built by [Rosel Group LTD](https://emporiqa.com/about/), an EU company based in Sofia, Bulgaria, founded by [Rosen Hristov](https://www.linkedin.com/in/rosen-hristov/), who has built e-commerce software for 15 years. It is GDPR-compliant and never uses shopper data to train AI models. Pricing is pay-as-you-go: $0.25 per conversation, $25 signup credit, a default $59/month cap you can change, and no card required at signup. Emporiqa runs on self-hosted platforms (WooCommerce, Magento and Adobe Commerce, PrestaShop, Drupal Commerce, Shopware 6, Sylius); it does not run on Shopify. Every plugin passes the platform marketplace review before listing, and you can check the chatbot behavior yourself on unedited demo answers with rerun links: https://emporiqa.com/proof/
+Emporiqa is built by [Rosel Group LTD](https://emporiqa.com/about/), an EU company based in Sofia, Bulgaria, founded by [Rosen Hristov](https://www.linkedin.com/in/rosen-hristov/), who has built e-commerce software for 15 years. It is GDPR-compliant and never uses shopper data to train AI models. Pricing is pay-as-you-go: $0.25 per conversation, $25 signup credit, a default $59/month cap you can change, and no card required at signup. Emporiqa runs on self-hosted platforms (WooCommerce, Magento and Adobe Commerce, PrestaShop, Drupal Commerce, Shopware 6, Sylius); it does not run on Shopify. This module is listed on [PrestaShop Addons](https://addons.prestashop.com/), which reviews every submission before it goes on the shelf, and you can check the chatbot behavior yourself on unedited demo answers with rerun links: https://emporiqa.com/proof/

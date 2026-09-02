@@ -94,7 +94,7 @@
                                 <input type="text" name="EMPORIQA_STORE_ID" value="{$emporiqa_store_id|escape:'htmlall':'UTF-8'}" class="form-control" autocomplete="off" />
                                 <p class="help-block">{l s='Your Emporiqa Store ID. Find it in your' mod='emporiqa'}
                                     <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener noreferrer">
-                                        {l s='Emporiqa dashboard under Settings' mod='emporiqa'} &rarr; {l s='Store Integration' mod='emporiqa'}
+                                        {l s='Emporiqa dashboard under Settings' mod='emporiqa'} &rarr; {l s='Integration' mod='emporiqa'}
                                     </a>.
                                 </p>
                             </div>
@@ -106,7 +106,7 @@
                                     {if $emporiqa_webhook_secret_set}placeholder="{l s='Value is set (leave empty to keep)' mod='emporiqa'}"{/if} />
                                 <p class="help-block">{l s='Your connection secret for HMAC signing. Find it in your' mod='emporiqa'}
                                     <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#integration-overview" target="_blank" rel="noopener noreferrer">
-                                        {l s='Emporiqa dashboard under Settings' mod='emporiqa'} &rarr; {l s='Store Integration' mod='emporiqa'}
+                                        {l s='Emporiqa dashboard under Settings' mod='emporiqa'} &rarr; {l s='Integration' mod='emporiqa'}
                                     </a>.
                                     {l s='Leave empty to keep the current value.' mod='emporiqa'}
                                 </p>
@@ -129,7 +129,7 @@
                                 </div>
                                 <p class="help-block">{l s='Copy this URL into your' mod='emporiqa'}
                                     <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=integration#order-tracking" target="_blank" rel="noopener noreferrer">
-                                        {l s='Emporiqa dashboard under Settings' mod='emporiqa'} &rarr; {l s='Store Integration' mod='emporiqa'} &rarr; {l s='Order Tracking' mod='emporiqa'}
+                                        {l s='Emporiqa dashboard under Settings' mod='emporiqa'} &rarr; {l s='Integration' mod='emporiqa'} &rarr; {l s='Order tracking' mod='emporiqa'}
                                     </a>.
                                 </p>
                             </div>
