@@ -1,38 +1,13 @@
 # Emporiqa : Chatbot IA pour PrestaShop
 
-Un client tape « veste chaude moins de 100 euros, imperméable » dans la recherche de votre boutique. Le moteur lui renvoie tous les articles qui portent « veste » dans le titre. Il fait défiler, renonce et s'en va.
-
-Le chatbot IA [Emporiqa](https://emporiqa.com) pour PrestaShop 8.1+ et 9 est un vendeur en ligne qui conclut des ventes dans votre boutique PrestaShop. Le module synchronise votre catalogue produits et vos pages CMS avec Emporiqa, insère le widget de chat sur votre vitrine et expose les endpoints qui gèrent le panier et le suivi de commande dans le chat.
-
-Le chatbot se comporte comme un vendeur en ligne. Le client décrit ce qu'il cherche (ou téléverse la photo d'un article qui lui plaît), et le chatbot trouve les produits correspondants dans votre catalogue, gère les objections comme « trop cher » en proposant des alternatives plutôt qu'une remise, répond aux questions à partir de vos pages CMS, compare les articles et l'accompagne jusqu'au panier et au paiement, en 65+ langues.
+Le chatbot IA [Emporiqa](https://emporiqa.com) pour PrestaShop 8.1+ et 9 est un vendeur en ligne qui conclut des ventes dans votre boutique : le client décrit ce qu'il cherche ou téléverse la photo d'un article qui lui plaît, le chatbot trouve les produits correspondants dans votre catalogue, gère les objections comme « trop cher » en proposant des alternatives plutôt qu'une remise, répond aux questions à partir de vos pages CMS et l'accompagne jusqu'au panier et au paiement, en 65+ langues. Ce module synchronise votre catalogue produits et vos pages CMS avec Emporiqa, insère le widget de chat sur votre vitrine et expose les endpoints qui gèrent le panier et le suivi de commande dans le chat.
 
 [![Widget de chat Emporiqa ouvert sur une boutique, qui répond à une question sur un portable à moins de 1200 euros pour le montage vidéo : il indique le modèle, le prix et la version conseillée, puis propose de l'ajouter au panier](docs/images/07-storefront-fr.webp)](https://demo.emporiqa.com)
 
-> **[Présentation de l'intégration](https://emporiqa.com/fr/integrations/prestashop/)** · **[Documentation complète](https://emporiqa.com/fr/docs/prestashop/)** · **[Démo en ligne](https://demo.emporiqa.com)** · **[Tarifs](https://emporiqa.com/fr/pricing/)**
-
-**Regardez la démo de 30 secondes** (recommande, gère les objections, conclut) :
-
-[![Regardez la démo de 30 secondes sur YouTube : Emporiqa recommande un produit, gère une objection et l'ajoute au panier](https://img.youtube.com/vi/txg-O_aTx0s/maxresdefault.jpg)](https://www.youtube.com/watch?v=txg-O_aTx0s)
-
-## Fonctionnalités
-
-- **Conclut des ventes** : gère les objections comme « trop cher » en proposant des alternatives tirées de votre catalogue, plutôt qu'une remise.
-- **Recherche visuelle** : le client téléverse une photo dans le widget ; le chatbot la décrit et trouve les produits correspondants dans votre catalogue PrestaShop synchronisé (aucune configuration supplémentaire).
-- **Réponses sûres pour la marque** : demandez-lui un produit que la boutique ne vend pas, et il vous le dit au lieu d'en inventer un. Les informations produit proviennent de ce que vous synchronisez, votre catalogue et vos pages CMS, pas des données d'entraînement du modèle. Quand il ne doit pas répondre seul, il fait appel à quelqu'un de votre équipe. [Exemples non retouchés](https://emporiqa.com/fr/proof/).
-- **Un live chat où vous pouvez intervenir, sans permanence à assurer** : n'importe quel membre de votre équipe peut ouvrir une conversation en cours et la reprendre, pas seulement celles où un client a demandé à parler à quelqu'un. Tant qu'une personne de votre équipe est dans la conversation, le chat s'arrête et la laisse parler, et celui qui reprend la main lit tout l'échange depuis le premier message, avec vos réponses enregistrées sous la main. Tous les membres de votre équipe sont inclus, sans frais par utilisateur, et une conversation reprise par une personne n'est pas facturée une seconde fois.
-- **Sync produits** : synchronisation des produits et des déclinaisons en temps réel, par webhooks. Relations parent/enfant, attributs, prix (y compris les remises sur quantité et les tarifs dégressifs), niveaux de stock et images sont inclus, ainsi que les indicateurs natifs PrestaShop `condition` (neuf/occasion/reconditionné), `is_virtual` (produits dématérialisés) et `available_for_order` (produits en mode catalogue, en affichage seul).
-- **Sync pages** : pages CMS synchronisées dans chacune de vos langues, pour que l'assistant réponde aux questions de support à partir de vos propres textes.
-- **Widget de chat** : inséré automatiquement sur votre vitrine, dans la langue du visiteur.
-- **Panier dans le chat** : le client ajoute, modifie et supprime des articles, puis passe à la commande sans quitter le chat.
-- **Suivi de commande** : recherche de commande signée HMAC, avec vérification de l'adresse email du client pour protéger ses données. La réponse donne le statut de la commande et les articles, ainsi que les informations d'expédition : nom du transporteur, numéro de suivi et URL de suivi (composée à partir du modèle d'URL du transporteur), une fois la commande expédiée.
-- **Suivi de conversion** : capture l'ID de session chat au moment du paiement et remonte les événements de commande finalisée pour l'attribution du revenu.
-- **Multi-langue** : correspondance automatique des langues. Toutes les traductions sont regroupées dans un seul payload webhook par entité.
-- **Multi-boutique / multi-canal** : découverte automatique des boutiques, chacune rattachée à un canal Emporiqa via un slug construit sur le nom de la boutique (ex. « Ma Boutique » → `ma-boutique`). Les produits et les pages affectés à plusieurs boutiques portent les liens, prix, stocks et langues de chaque canal dans un seul payload. Le canal est toujours transmis au widget et aux webhooks.
-- **Connexion en un clic** : un échange signé lie votre boutique à votre compte Emporiqa en un clic. Aucun Store ID ni Connection Secret à copier d'un onglet à l'autre. La saisie manuelle reste disponible sur les sites en HTTP.
-- **Envoi en arrière-plan plafonné** : les événements produit, page et commande s'accumulent pendant la requête et partent en une seule fois à sa clôture, avec un plafond strict de 1,5 seconde sur l'envoi synchrone. Les enregistrements en back office et les imports CSV se terminent en local ; le webhook part une fois la réponse envoyée, et la requête marchand ne peut jamais attendre plus de 1,5 seconde, même si Emporiqa répond lentement.
-- **Hooks d'extensibilité** : 7 hooks d'action qui permettent aux développeurs de personnaliser les payloads, d'annuler des syncs ou de modifier le comportement du widget.
-
-**Vérifiez avant de nous croire.** Demandez à ChatGPT, Claude ou Perplexity : « Est-ce qu'Emporiqa (emporiqa.com) conviendrait à ma boutique ? » Un assistant neutre n'a aucune raison de nous flatter. Lisez ensuite des conversations non retouchées, refus compris, sur https://emporiqa.com/fr/proof/ et essayez la démo en ligne sur https://demo.emporiqa.com. Cette démo vend de l'électronique, et le comportement est le même sur n'importe quel catalogue.
+- **Présentation de l'intégration** : [emporiqa.com/fr/integrations/prestashop/](https://emporiqa.com/fr/integrations/prestashop/)
+- **Documentation complète** : [emporiqa.com/fr/docs/prestashop/](https://emporiqa.com/fr/docs/prestashop/) (référence du format webhook, exemples de hooks, dépannage)
+- **Fonctionnalités** : [emporiqa.com/fr/features/](https://emporiqa.com/fr/features/) · **FAQ** : [emporiqa.com/fr/faq/](https://emporiqa.com/fr/faq/) · **Tarifs** : [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/)
+- **Démo en ligne** : [demo.emporiqa.com](https://demo.emporiqa.com) et une [vidéo de 30 secondes](https://www.youtube.com/watch?v=txg-O_aTx0s). Cette démo vend de l'électronique, et le comportement est le même sur n'importe quel catalogue.
 
 ## Prérequis
 
@@ -78,6 +53,10 @@ La méthode recommandée est **Se connecter à Emporiqa** (échange signé en un
 
 Le suivi de commande (avec vérification de l'email du client) et les opérations de panier dans le chat sont toujours activés. Aucune configuration nécessaire.
 
+## Mention de l'IA
+
+Le message d'accueil par défaut indique au client qu'il s'adresse à l'assistant IA de la boutique, dans chacune des langues que le chat parle. Un message d'accueil personnalisé doit conserver cette mention ; s'il l'omet, il est refusé à l'enregistrement. La section 8.6 des [conditions d'utilisation d'Emporiqa](https://emporiqa.com/fr/terms-of-service/) considère la suppression de cette mention, y compris par du CSS ou du code personnalisé, comme un manquement au contrat.
+
 ## Garder votre catalogue à jour
 
 Le module envoie automatiquement à Emporiqa les modifications de produits, de pages et de commandes, au fil de l'eau, via les hooks PrestaShop. Celles qui ne touchent qu'un produit, promotion programmée (SpecificPrice), changement d'image ou de déclinaison, déclenchent d'elles-mêmes un nouvel envoi du produit concerné ; un simple changement de stock ou une mise en rupture envoie une mise à jour compacte, limitée à la disponibilité, sans reconstruire le produit entier.
@@ -93,6 +72,18 @@ Relancez une synchronisation complète depuis l'onglet **Sync** quand :
 - Emporiqa a été injoignable pendant une période prolongée (panne réseau, maintenance planifiée, identifiants expirés)
 
 Par sécurité, lancez une synchronisation complète une fois par semaine, pour rattraper une éventuelle dérive due à un envoi en arrière-plan qui aurait échoué.
+
+## Champs du payload produit
+
+Au-delà des champs présentés dans la [référence du payload webhook](https://emporiqa.com/fr/docs/prestashop/), le payload complet du produit et de ses déclinaisons porte ces champs natifs PrestaShop, de merchandising et de prix :
+
+- `condition` : chaîne ou null ; la `condition` du produit PrestaShop (`"new"`, `"used"` ou `"refurbished"`).
+- `is_virtual` : booléen ; vrai pour les produits dématérialisés sans expédition.
+- `available_for_order` : booléen ; faux pour les produits en mode catalogue, en affichage seul. L'assistant les décrit toujours, mais ne les ajoute pas au panier.
+- `max_order_quantities` : dictionnaire par canal (`{canal: int|null}`) de la quantité maximale autorisée par commande. PrestaShop n'ayant pas de maximum natif par commande, ce champ vaut pour l'instant toujours `null` (aucune limite). Il est là pour la parité de contrat entre plateformes, afin qu'une source personnalisée puisse le renseigner plus tard.
+- `tier_prices` : liste par devise des remises sur quantité et des tarifs dégressifs (`[{min_quantity, price}]`), présente sur une entrée de prix uniquement si le produit ou la déclinaison a des remises sur quantité configurées dans PrestaShop. Chaque palier reprend le prix unitaire affiché au visiteur non connecté à ce seuil. Les paliers réservés à un groupe, à un client ou à un pays (B2B) sont volontairement exclus.
+
+Ces champs font partie du payload complet produit et déclinaison, pas de l'événement léger `product.availability`, qui ne porte que le numéro d'identification, le SKU, les statuts de disponibilité par canal et les quantités en stock.
 
 ## Structure du module
 
@@ -132,33 +123,7 @@ emporiqa/
 └── upgrade/                          # Scripts de mise à jour de version
 ```
 
-## Fonctionnement
-
-### Sync par Webhooks
-
-Quand un produit ou une page CMS est créé, modifié ou supprimé dans PrestaShop, le module note le changement dans un registre propre à la requête et enregistre un unique `register_shutdown_function`. À la clôture de la requête, il relit l'état final en base et envoie un webhook par entité modifiée, avec un plafond strict de 1,5 seconde sur l'appel HTTP (500 ms de connexion, 1500 ms au total). Comme tout part en fin de requête, la réponse du back office ou du tunnel de commande est envoyée en premier (via `fastcgi_finish_request` sous PHP-FPM, quand il est disponible) ; le webhook suit, plafonné, et la requête marchand ne peut jamais attendre plus de 1,5 seconde, même si Emporiqa est injoignable.
-
-Tous les webhooks sont signés en HMAC-SHA256 via le header `X-Webhook-Signature`, ce qui permet de vérifier l'intégrité du payload.
-
-### Déclinaisons de produits
-
-Les produits PrestaShop à déclinaisons sont synchronisés avec toute leur structure de variations. Le produit parent porte le nom, la description et les images communs, tandis que chaque déclinaison porte ses propres attributs (taille, couleur, etc.), son prix et son stock. L'assistant comprend que « cette veste existe en bleu et en rouge, du S au XL ».
-
-Le payload complet du produit (et de ses déclinaisons) porte aussi quelques champs natifs PrestaShop, de merchandising et de prix, pour que l'assistant décrive et vende les produits avec précision :
-
-- `condition` : chaîne ou null ; la `condition` du produit PrestaShop (`"new"`, `"used"` ou `"refurbished"`).
-- `is_virtual` : booléen ; vrai pour les produits dématérialisés sans expédition.
-- `available_for_order` : booléen ; faux pour les produits en mode catalogue, en affichage seul. L'assistant les décrit toujours, mais ne les ajoute pas au panier.
-- `max_order_quantities` : dictionnaire par canal (`{canal: int|null}`) de la quantité maximale autorisée par commande. PrestaShop n'ayant pas de maximum natif par commande, ce champ vaut pour l'instant toujours `null` (aucune limite). Il est là pour la parité de contrat entre plateformes, afin qu'une source personnalisée puisse le renseigner plus tard.
-- `tier_prices` : liste par devise des remises sur quantité et des tarifs dégressifs (`[{min_quantity, price}]`), présente sur une entrée de prix uniquement si le produit ou la déclinaison a des remises sur quantité configurées dans PrestaShop. Chaque palier reprend le prix unitaire affiché au visiteur non connecté à ce seuil, pour que l'assistant puisse annoncer « X l'unité à partir de 10 ». Les paliers réservés à un groupe, à un client ou à un pays (B2B) sont volontairement exclus.
-
-Ces champs font partie du payload complet produit et déclinaison, pas de l'événement léger `product.availability`. Un simple changement de stock ou de disponibilité évite la reconstruction complète et envoie un événement compact `product.availability`, qui ne porte que le numéro d'identification, le SKU, les statuts de disponibilité par canal et les quantités en stock, à raison d'une entrée par produit simple ou par déclinaison.
-
-### Multi-langue
-
-Chaque langue active de la boutique correspond à un code langue standard. Un produit traduit en 3 langues part en un seul payload webhook, toutes traductions imbriquées : moins de requêtes HTTP, et des données cohérentes.
-
-### Hooks PrestaShop enregistrés
+## Hooks PrestaShop enregistrés
 
 | Hook | Fonction |
 |------|----------|
@@ -196,21 +161,12 @@ Les développeurs peuvent se brancher sur le pipeline de sync pour personnaliser
 
 ## Tarifs
 
-Le module est payant sur PrestaShop Addons et gratuit sur [GitHub](https://github.com/emporiqa/prestashop). Dans les deux cas, le service Emporiqa est facturé à l'usage : 0 $/mois de base + 0,25 $/conversation. Les nouveaux comptes reçoivent 25 $ de crédit à l'ouverture (environ 100 conversations offertes), et aucune carte bancaire n'est demandée à l'inscription. Une fois le crédit épuisé, le plafond mensuel est fixé à 59 $ par défaut, ajustable depuis le tableau de bord de facturation. Option Enterprise pour les catalogues de plus de 100 000 produits. Tarifs complets sur [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/).
+Le module est payant sur PrestaShop Addons et gratuit sur [GitHub](https://github.com/emporiqa/prestashop). Le service Emporiqa, lui, est facturé à l'usage : 0 $/mois de base + 0,25 $/conversation, avec 25 $ de crédit à l'ouverture du compte et aucune carte bancaire demandée à l'inscription. Tarifs complets sur [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/).
 
-Emporiqa fonctionne aussi avec Drupal Commerce, WooCommerce, Magento, Shopware et Sylius, et avec n'importe quelle boutique via l'API webhook. Un seul compte Emporiqa et un seul tableau de bord pour toutes vos boutiques.
+## Support
 
-## Documentation & Support
-
-- **Présentation de l'intégration** : [https://emporiqa.com/fr/integrations/prestashop/](https://emporiqa.com/fr/integrations/prestashop/)
-- **Documentation complète** : [https://emporiqa.com/fr/docs/prestashop/](https://emporiqa.com/fr/docs/prestashop/) (détails de configuration, référence du format webhook, exemples de hooks, dépannage)
-- **Email** : support@emporiqa.com
+Écrivez à support@emporiqa.com.
 
 ## Licence
 
 [Academic Free License 3.0 (AFL-3.0)](https://opensource.org/licenses/AFL-3.0)
-
-
-## Qui édite Emporiqa
-
-Emporiqa est édité par [Rosel Group LTD](https://emporiqa.com/about/), une société de l'UE basée à Sofia, en Bulgarie, fondée par [Rosen Hristov](https://www.linkedin.com/in/rosen-hristov/), qui développe des logiciels e-commerce depuis 15 ans. Emporiqa est conforme au RGPD et n'utilise jamais les données de vos clients pour entraîner des modèles d'IA. La tarification est à l'usage : 0,25 $ par conversation, 25 $ de crédit offert à l'ouverture du compte, un plafond mensuel fixé à 59 $ par défaut que vous pouvez modifier, et aucune carte bancaire demandée à l'inscription. Emporiqa fonctionne sur les plateformes auto-hébergées (WooCommerce, Magento et Adobe Commerce, PrestaShop, Drupal Commerce, Shopware 6, Sylius) ; il ne fonctionne pas sur Shopify. Ce module est publié sur [PrestaShop Addons](https://addons.prestashop.com/fr/), qui contrôle chaque soumission avant sa mise en ligne. Et vous pouvez juger vous-même le comportement du chatbot sur des réponses de démo non retouchées, avec les liens pour les rejouer : https://emporiqa.com/fr/proof/
