@@ -2,12 +2,12 @@
 
 Le chatbot IA [Emporiqa](https://emporiqa.com) pour PrestaShop 8.1+ et 9 est un vendeur en ligne qui conclut des ventes dans votre boutique : le client décrit ce qu'il cherche ou téléverse la photo d'un article qui lui plaît, le chatbot trouve les produits correspondants dans votre catalogue, gère les objections comme « trop cher » en proposant des alternatives plutôt qu'une remise, répond aux questions à partir de vos pages CMS et l'accompagne jusqu'au panier et au paiement, en 65+ langues. Ce module synchronise votre catalogue produits et vos pages CMS avec Emporiqa, insère le widget de chat sur votre vitrine et expose les endpoints qui gèrent le panier et le suivi de commande dans le chat.
 
-[![Widget de chat Emporiqa ouvert sur une boutique, qui répond à une question sur un portable à moins de 1200 euros pour le montage vidéo : il indique le modèle, le prix et la version conseillée, puis propose de l'ajouter au panier](docs/images/07-storefront-fr.webp)](https://demo.emporiqa.com)
+[![Widget de chat Emporiqa ouvert sur une boutique, qui répond à la question « Quels casques à réduction de bruit avez-vous pour les longs vols, à moins de 400 euros ? » : il cite le Sennheiser Momentum 4 pour ses 60 h d'autonomie et le Sony WH-1000XM5 pour son ANC adaptatif à 8 microphones, et affiche les deux en fiches produit avec photo, prix et bouton Panier, au-dessus d'un champ de saisie avec un bouton photo et un bouton vocal](docs/images/lead-answer-fr.webp)](https://demo.emporiqa.com)
 
 - **Présentation de l'intégration** : [emporiqa.com/fr/integrations/prestashop/](https://emporiqa.com/fr/integrations/prestashop/)
 - **Documentation complète** : [emporiqa.com/fr/docs/prestashop/](https://emporiqa.com/fr/docs/prestashop/) (référence du format webhook, exemples de hooks, dépannage)
 - **Fonctionnalités** : [emporiqa.com/fr/features/](https://emporiqa.com/fr/features/) · **FAQ** : [emporiqa.com/fr/faq/](https://emporiqa.com/fr/faq/) · **Tarifs** : [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/)
-- **Démo en ligne** : [demo.emporiqa.com](https://demo.emporiqa.com) et une [vidéo de 30 secondes](https://www.youtube.com/watch?v=txg-O_aTx0s). Cette démo vend de l'électronique, et le comportement est le même sur n'importe quel catalogue.
+- **Démo en ligne** : [demo.emporiqa.com](https://demo.emporiqa.com) et une [vidéo de 30 secondes](https://www.youtube.com/watch?v=WtD8HwpIeOs). Cette démo vend de l'électronique, et le comportement est le même sur n'importe quel catalogue.
 
 ## Prérequis
 
@@ -161,7 +161,7 @@ Les développeurs peuvent se brancher sur le pipeline de sync pour personnaliser
 
 ## Tarifs
 
-Le module est payant sur PrestaShop Addons et gratuit sur [GitHub](https://github.com/emporiqa/prestashop). Le service Emporiqa, lui, est facturé à l'usage : 0 $/mois de base + 0,25 $/conversation, avec 25 $ de crédit à l'ouverture du compte et aucune carte bancaire demandée à l'inscription. Tarifs complets sur [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/).
+Le module est payant sur PrestaShop Addons et gratuit sur [GitHub](https://github.com/emporiqa/prestashop). Le service Emporiqa, lui, est facturé à l'usage : 0 $/mois de base + 0,25 $/conversation, avec 25 $ de crédit à l'ouverture du compte (environ 100 conversations) et aucune carte bancaire demandée à l'inscription. Une fois le crédit épuisé, le plafond mensuel est de 59 $ par défaut, et vous le modifiez vous-même depuis votre espace facturation. Le mode vocal (le client pose sa question au micro et entend la réponse lue à voix haute) est en option et désactivé par défaut : une conversation où le client utilise la voix est facturée 0,25 $ de plus, une seule fois, et compte dans ce plafond. Offre Enterprise pour les catalogues de plus de 100 000 produits. Tarifs complets sur [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/).
 
 ## Support
 
