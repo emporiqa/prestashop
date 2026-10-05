@@ -45,12 +45,51 @@ class EmporiqaWebhookClient
     /** @var string|null Friendly message from the most recent failed sendBatchEvents call, or null after a success. */
     private $lastError;
 
+    /** @var int curl errno of the most recent request, 0 when it reached Emporiqa */
+    private $lastErrno = 0;
+
+    /**
+     * Per-request circuit breaker for hook-driven sends. A request that
+     * queued many products (a bulk edit, a catalog-wide resync) would
+     * otherwise wait SYNC_HOOK_TIMEOUT on each one while Emporiqa is
+     * unreachable. Once open, the rest of this request's hook sends are
+     * skipped; admin Sync and Test connection are not affected.
+     *
+     * @var bool
+     */
+    private static $hookCircuitOpen = false;
+
+    /**
+     * Whether this request already stamped LAST_AUTO_FAIL_KEY, so a failing
+     * bulk edit writes the config table once, not once per send.
+     *
+     * @var bool
+     */
+    private static $autoFailRecorded = false;
+
+    /**
+     * Emporiqa refuses a signature whose timestamp is more than 300 s away
+     * from its own clock. Past this, a 401 on a sync send is logged as a
+     * clock problem (once a day) instead of a bare signature error.
+     */
+    public const CLOCK_SKEW_REJECT_SECONDS = 300;
+
+    /** Last day a clock-skew 401 was logged, so a broken clock logs once a day, not per save. */
+    public const CLOCK_SKEW_LOGGED_KEY = 'EMPORIQA_CLOCK_SKEW_LOGGED';
+
+    /** When an automatic (hook) send last failed, 0 once one succeeds again; shown on the Sync tab. */
+    public const LAST_AUTO_FAIL_KEY = 'EMPORIQA_LAST_AUTO_FAIL';
+
     /** @var EmporiqaChannelResolver */
     private $channelResolver;
 
-    public function __construct(EmporiqaChannelResolver $channelResolver)
+    /** @var Context|null */
+    private $context;
+
+    public function __construct(EmporiqaChannelResolver $channelResolver, ?Context $context = null)
     {
         $this->channelResolver = $channelResolver;
+        $this->context = $context;
     }
 
     /**
@@ -62,17 +101,16 @@ class EmporiqaWebhookClient
      *
      * @param string $type Event type (e.g. product.updated)
      * @param array $data Event data payload
+     *
+     * @return bool whether Emporiqa accepted the event
      */
     public function dispatchEvent($type, array $data)
     {
         if (!$this->isConfigured()) {
-            return;
+            return false;
         }
 
-        $this->sendBatchEvents(
-            [['type' => $type, 'data' => $data]],
-            self::SYNC_HOOK_TIMEOUT
-        );
+        return $this->dispatchFromHook([['type' => $type, 'data' => $data]]);
     }
 
     /**
@@ -80,14 +118,49 @@ class EmporiqaWebhookClient
      * needs to emit a parent + all its variations in one call.
      *
      * @param array<int, array{type: string, data: array}> $events
+     *
+     * @return bool whether Emporiqa accepted the events
      */
     public function dispatchEvents(array $events)
     {
         if (empty($events) || !$this->isConfigured()) {
-            return;
+            return false;
         }
 
-        $this->sendBatchEvents($events, self::SYNC_HOOK_TIMEOUT);
+        return $this->dispatchFromHook($events);
+    }
+
+    /**
+     * @return bool
+     */
+    private function dispatchFromHook(array $events)
+    {
+        // An order is reported once and never resent by a later save, so it
+        // is always tried, even after a product send in this request failed.
+        $isOrder = in_array('order.completed', array_column($events, 'type'), true);
+        if (self::$hookCircuitOpen && !$isOrder) {
+            return false;
+        }
+        if ($this->sendBatchEvents($events, self::SYNC_HOOK_TIMEOUT)) {
+            // A cached read on every send; a write only after a failure.
+            if (Configuration::get(self::LAST_AUTO_FAIL_KEY)) {
+                Configuration::updateGlobalValue(self::LAST_AUTO_FAIL_KEY, 0);
+                self::$autoFailRecorded = false;
+            }
+
+            return true;
+        }
+        // For the Sync tab: automatic updates are failing.
+        if (!self::$autoFailRecorded) {
+            Configuration::updateGlobalValue(self::LAST_AUTO_FAIL_KEY, time());
+            self::$autoFailRecorded = true;
+        }
+        if (in_array($this->lastErrno, [CURLE_COULDNT_RESOLVE_HOST, CURLE_COULDNT_CONNECT, CURLE_OPERATION_TIMEOUTED], true)) {
+            self::$hookCircuitOpen = true;
+            $this->log('Emporiqa did not answer; the remaining sync webhooks of this request are skipped.');
+        }
+
+        return false;
     }
 
     /**
@@ -197,7 +270,7 @@ class EmporiqaWebhookClient
             $parts[] = '(' . $body['hint'] . ')';
         }
         if (empty($parts)) {
-            $fallback = $result['error'] ?? 'Unknown error';
+            $fallback = $result['error'] ?? $this->t('Unknown error');
             $parts[] = is_string($fallback) ? $fallback : json_encode($fallback);
         }
 
@@ -254,18 +327,18 @@ class EmporiqaWebhookClient
     /**
      * Test the webhook connection.
      *
-     * @return array{success: bool, message: string}
+     * @return array{success: bool, message: string, dry_run?: array, clock_skew?: int|null}
      */
     public function testConnection()
     {
         $storeId = Configuration::get('EMPORIQA_STORE_ID');
         if (empty($storeId)) {
-            return ['success' => false, 'message' => 'Store ID is not configured.'];
+            return ['success' => false, 'message' => $this->t('No Store ID is saved yet. Connect to Emporiqa on the Settings tab.')];
         }
 
         $secret = Configuration::get('EMPORIQA_WEBHOOK_SECRET');
         if (empty($secret)) {
-            return ['success' => false, 'message' => 'Connection Secret is not configured.'];
+            return ['success' => false, 'message' => $this->t('No Connection Secret is saved yet. Connect to Emporiqa on the Settings tab.')];
         }
 
         $contexts = $this->channelResolver->getShopContexts();
@@ -346,14 +419,16 @@ class EmporiqaWebhookClient
         if ($result['success']) {
             return [
                 'success' => true,
-                'message' => 'Connection successful!',
+                'message' => $this->t('Connection works. Emporiqa accepted your Store ID and Connection Secret.'),
                 'dry_run' => $result['response'] ?? [],
+                'clock_skew' => $result['clock_skew'],
             ];
         }
 
         return [
             'success' => false,
-            'message' => 'Connection failed: ' . $this->buildFriendlyError($result),
+            'message' => sprintf($this->t('Connection failed: %s'), $this->buildFriendlyError($result)),
+            'clock_skew' => $result['clock_skew'],
         ];
     }
 
@@ -388,29 +463,22 @@ class EmporiqaWebhookClient
      * @param bool $dryRun Append ?dry_run=true to validate without storing
      * @param int|float $timeout Total request timeout in seconds
      *
-     * @return array{success: bool, error: ?string, response: ?array}
+     * @return array{success: bool, error: ?string, response: ?array, clock_skew: ?int}
      */
     private function doRequest(array $payload, $dryRun = false, $timeout = 30)
     {
+        $this->lastErrno = 0;
         $url = $this->getWebhookUrl();
         if ($dryRun && $url) {
             $url .= '?dry_run=true';
         }
         if (empty($url)) {
-            return [
-                'success' => false,
-                'error' => 'Webhook not configured (missing Store ID).',
-                'response' => null,
-            ];
+            return self::failure($this->t('No Store ID is saved yet, or the Webhook URL is not a valid http(s) address.'));
         }
 
         $secret = Configuration::get('EMPORIQA_WEBHOOK_SECRET');
         if (empty($secret)) {
-            return [
-                'success' => false,
-                'error' => 'Connection Secret is not configured.',
-                'response' => null,
-            ];
+            return self::failure($this->t('No Connection Secret is saved yet. Connect to Emporiqa on the Settings tab.'));
         }
 
         $jsonPayload = json_encode($payload);
@@ -421,21 +489,23 @@ class EmporiqaWebhookClient
         if ($jsonPayload === false) {
             $this->log('JSON encode failed: ' . json_last_error_msg());
 
-            return [
-                'success' => false,
-                'error' => 'Failed to encode payload: ' . json_last_error_msg(),
-                'response' => null,
-            ];
+            return self::failure(sprintf($this->t('The data could not be encoded: %s'), json_last_error_msg()));
         }
+        // Both schemes while platforms that only know the old header may
+        // still receive this. Built per call, so every send gets a fresh t.
         $signature = EmporiqaSignatureHelper::generateSignature($jsonPayload, $secret);
+        $scheme2 = EmporiqaSignatureHelper::buildHeader(
+            EmporiqaSignatureHelper::deriveKey(
+                $secret,
+                EmporiqaSignatureHelper::LABEL_INBOUND,
+                (string) Configuration::get('EMPORIQA_STORE_ID'),
+            ),
+            $jsonPayload,
+        );
 
         $ch = curl_init($url);
         if (!$ch) {
-            return [
-                'success' => false,
-                'error' => 'Failed to initialize HTTP client.',
-                'response' => null,
-            ];
+            return self::failure($this->t('PHP could not start an HTTP request (cURL).'));
         }
         // Hook-driven (merchant-request) sends use a tight 500ms handshake
         // budget so the bounded 1.5s total can't be wholly consumed by DNS
@@ -446,7 +516,17 @@ class EmporiqaWebhookClient
         $connectTimeoutMs = $timeoutMs <= 2000
             ? self::SYNC_HOOK_CONNECT_TIMEOUT_MS
             : 5000;
+        // Emporiqa's Date header, to tell a skewed server clock apart from a
+        // wrong secret when a signature is refused.
+        $dateHeader = '';
         curl_setopt_array($ch, [
+            CURLOPT_HEADERFUNCTION => function ($handle, $line) use (&$dateHeader) {
+                if (stripos($line, 'Date:') === 0) {
+                    $dateHeader = trim(substr($line, 5));
+                }
+
+                return strlen($line);
+            },
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $jsonPayload,
             CURLOPT_RETURNTRANSFER => true,
@@ -459,6 +539,8 @@ class EmporiqaWebhookClient
             CURLOPT_HTTPHEADER => [
                 'Content-Type: application/json',
                 'X-Webhook-Signature: ' . $signature,
+                'X-Emporiqa-Webhook-Signature: ' . $scheme2,
+                'X-Emporiqa-Plugin-Version: prestashop/' . Emporiqa::VERSION,
             ],
         ]);
 
@@ -480,37 +562,98 @@ class EmporiqaWebhookClient
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
-        curl_close($ch);
+        $this->lastErrno = (int) curl_errno($ch);
 
         if ($error) {
             $this->log('HTTP request failed: ' . $error);
 
-            return [
-                'success' => false,
-                'error' => $error,
-                'response' => null,
-            ];
+            return self::failure($error);
         }
 
         $body = json_decode($response, true);
+        $clockSkew = self::clockSkew($dateHeader, time());
 
         if (in_array($httpCode, [200, 201, 202], true)) {
             return [
                 'success' => true,
                 'response' => $body,
                 'error' => null,
+                'clock_skew' => $clockSkew,
             ];
         }
 
-        $errorMsg = 'Unexpected status code: ' . $httpCode;
+        if ($httpCode === 401 && $clockSkew !== null && abs($clockSkew) > self::CLOCK_SKEW_REJECT_SECONDS) {
+            $this->logClockSkewOncePerDay($clockSkew);
+        }
+
         $truncated = strlen($response) > 500 ? substr($response, 0, 500) . '...' : $response;
-        $this->log($errorMsg . ' - Response: ' . $truncated);
+        $this->log('Unexpected status code: ' . $httpCode . ' - Response: ' . $truncated);
 
         return [
             'success' => false,
             'response' => $body,
-            'error' => $errorMsg,
+            'error' => sprintf($this->t('Emporiqa answered with HTTP status %d.'), $httpCode),
+            'clock_skew' => $clockSkew,
         ];
+    }
+
+    /**
+     * A doRequest() answer for a request that got no response.
+     *
+     * @param string $error
+     *
+     * @return array{success: bool, error: string, response: null, clock_skew: null}
+     */
+    private static function failure($error)
+    {
+        return ['success' => false, 'error' => $error, 'response' => null, 'clock_skew' => null];
+    }
+
+    /**
+     * Seconds this server's clock is ahead of Emporiqa's (negative when
+     * behind), from the response Date header. Null when there is none.
+     *
+     * @param string $dateHeader
+     * @param int $now
+     *
+     * @return int|null
+     */
+    public static function clockSkew($dateHeader, $now)
+    {
+        $remote = $dateHeader !== '' ? strtotime($dateHeader) : false;
+
+        return $remote === false ? null : (int) $now - $remote;
+    }
+
+    private function logClockSkewOncePerDay($clockSkew)
+    {
+        $today = date('Y-m-d');
+        if (Configuration::getGlobalValue(self::CLOCK_SKEW_LOGGED_KEY) === $today) {
+            return;
+        }
+        Configuration::updateGlobalValue(self::CLOCK_SKEW_LOGGED_KEY, $today);
+        $this->log(sprintf(
+            'Emporiqa refused the signature and this server clock is off by %d seconds. Emporiqa refuses signatures more than 5 minutes off; ask your host to enable NTP.',
+            (int) $clockSkew,
+        ));
+    }
+
+    /**
+     * Translated back-office text. Messages from here reach the merchant
+     * through Test connection and the sync log.
+     *
+     * @param string $string English source text
+     *
+     * @return string
+     */
+    private function t($string)
+    {
+        // No language outside a web request (a CLI run): keep the English.
+        if ($this->context === null || empty($this->context->language)) {
+            return $string;
+        }
+
+        return Translate::getModuleTranslation('emporiqa', $string, 'EmporiqaWebhookClient', null, false, null, true, false);
     }
 
     private function log($message)

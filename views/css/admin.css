@@ -7,20 +7,57 @@
  */
 
 /* Header */
+/* PrestaShop 8 positions the page subtitle (the module name) absolutely,
+   just above the page body, so the logo needs room below it. */
+.emporiqa-wrap {
+    padding-top: 16px;
+}
+
 .emporiqa-header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     margin-bottom: 16px;
 }
 
 .emporiqa-header-logo {
+    flex: 0 1 auto;
     height: 40px;
     width: auto;
+    max-width: 100%;
+    object-fit: contain;
 }
 
 .emporiqa-header-dashboard-btn {
     white-space: nowrap;
+}
+
+.emporiqa-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* PrestaShop 8's admin theme upper-cases every .btn; keep the module's
+   buttons in the case the labels are written in, with a gap after icons. */
+.emporiqa-wrap .btn {
+    text-transform: none;
+}
+
+.emporiqa-wrap .btn > i {
+    margin-right: 4px;
+}
+
+.emporiqa-rule-state .label {
+    display: inline-block;
+    margin: 0 8px 6px 0;
+    vertical-align: middle;
+}
+
+.emporiqa-rule-state .btn {
+    white-space: normal;
 }
 
 /* Tab navigation */
@@ -40,6 +77,16 @@
     color: #333;
     cursor: pointer;
     font-weight: 600;
+}
+
+.emporiqa-tabs .emporiqa-nav-tab,
+.emporiqa-tabs .emporiqa-nav-tab:hover,
+.emporiqa-tabs .emporiqa-nav-tab:focus {
+    text-decoration: none;
+}
+
+.emporiqa-tabs .emporiqa-nav-tab.active {
+    border-top: 3px solid #25b9d7;
 }
 
 .emporiqa-tabs .emporiqa-nav-tab.active {
@@ -126,12 +173,6 @@
 
 .emporiqa-section-closed .emporiqa-section-body {
     display: none;
-}
-
-/* Required field asterisk (scoped to our wrapper) */
-.emporiqa-wrap .control-label.required::after {
-    content: ' *';
-    color: #e74c3c;
 }
 
 /* Field warning */
@@ -330,6 +371,15 @@
     margin: 0 0 12px;
     white-space: pre-wrap;
     word-break: break-word;
+}
+
+.emporiqa-tech-details-body {
+    padding-left: 14px;
+}
+
+.emporiqa-payload-title {
+    font-weight: 600;
+    margin: 8px 0 4px;
 }
 
 .emporiqa-panel-footer {

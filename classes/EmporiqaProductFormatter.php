@@ -348,7 +348,7 @@ class EmporiqaProductFormatter
                     $allDescriptions,
                     $combinationsByLang,
                     $parentMinQty,
-                    $syncSessionId
+                    $syncSessionId,
                 );
                 if ($variationData) {
                     $result[] = $variationData;
@@ -719,7 +719,7 @@ class EmporiqaProductFormatter
         return (int) StockAvailable::getQuantityAvailableByProduct(
             (int) $productId,
             $paId ? (int) $paId : 0,
-            (int) $shopId
+            (int) $shopId,
         );
     }
 
@@ -761,7 +761,7 @@ class EmporiqaProductFormatter
             // via nleft/nright. Avoids relying on PrestaShop's Category object
             // which inherits the current request's shop context.
             $leaf = Db::getInstance()->getRow(
-                'SELECT nleft, nright FROM ' . _DB_PREFIX_ . 'category WHERE id_category = ' . (int) $categoryId
+                'SELECT nleft, nright FROM ' . _DB_PREFIX_ . 'category WHERE id_category = ' . (int) $categoryId,
             );
             if (!$leaf) {
                 self::$categoryLangCache[$catCacheKey] = '';
@@ -777,7 +777,7 @@ class EmporiqaProductFormatter
                 . ' WHERE c.nleft <= ' . (int) $leaf['nleft']
                 . '   AND c.nright >= ' . (int) $leaf['nright']
                 . '   AND c.level_depth >= 2'
-                . ' ORDER BY c.level_depth ASC'
+                . ' ORDER BY c.level_depth ASC',
             );
 
             $segments = [];
@@ -844,15 +844,15 @@ class EmporiqaProductFormatter
             $specificPrice = null;
             $currentInc = (float) Product::getPriceStatic(
                 (int) $productId, true, $paId, 2, null, false, true, 1, false,
-                null, null, null, $specificPrice, true, true, $priceContext
+                null, null, null, $specificPrice, true, true, $priceContext,
             );
             $currentExc = (float) Product::getPriceStatic(
                 (int) $productId, false, $paId, 2, null, false, true, 1, false,
-                null, null, null, $specificPrice, true, true, $priceContext
+                null, null, null, $specificPrice, true, true, $priceContext,
             );
             $regularInc = (float) Product::getPriceStatic(
                 (int) $productId, true, $paId, 2, null, false, false, 1, false,
-                null, null, null, $specificPrice, true, true, $priceContext
+                null, null, null, $specificPrice, true, true, $priceContext,
             );
 
             $entry = [
@@ -917,7 +917,7 @@ class EmporiqaProductFormatter
             $idGroup,
             $paId ? (int) $paId : null,
             false,
-            0
+            0,
         );
 
         if (empty($discounts)) {
@@ -939,7 +939,7 @@ class EmporiqaProductFormatter
             $specificPrice = null;
             $unit = (float) Product::getPriceStatic(
                 (int) $productId, true, $paId, 2, null, false, true, $fromQty, false,
-                null, null, null, $specificPrice, true, true, $priceContext
+                null, null, null, $specificPrice, true, true, $priceContext,
             );
 
             // Defensive: getQuantityDiscounts already excludes out-of-window
@@ -996,7 +996,7 @@ class EmporiqaProductFormatter
                 $url = $context->link->getImageLink(
                     $linkRewrite,
                     (int) $product->id . '-' . $imageId,
-                    $imageTypeName
+                    $imageTypeName,
                 );
                 $url = (strpos($url, 'http') === 0) ? $url : 'https://' . $url;
             }

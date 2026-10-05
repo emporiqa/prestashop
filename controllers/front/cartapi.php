@@ -2,10 +2,15 @@
 /**
  * Emporiqa Cart API Front Controller
  *
- * AJAX endpoint for cart operations called by the Emporiqa chat widget.
+ * AJAX endpoint for cart operations called by the Emporiqa chat widget
+ * (views/js/front-cart-handler.js). POST only, never cached.
  * URL: /module/emporiqa/cartapi
  *
  * Actions: add, get, update, remove, clear, checkout-url
+ *
+ * The work is done by EmporiqaCartApiEndpoint. This file stays PHP 7
+ * parseable, like emporiqa.php, so an install left on PHP 7 answers 503
+ * instead of a fatal error.
  *
  * @author    Emporiqa
  * @copyright Emporiqa
@@ -23,153 +28,52 @@ class EmporiqaCartapiModuleFrontController extends ModuleFrontController
     {
         $this->ajax = true;
 
-        if (!Tools::isSubmit('action')) {
-            $this->ajaxResponse([
+        require_once dirname(__FILE__) . '/../../classes/EmporiqaJsonResponse.php';
+        if (PHP_VERSION_ID < 80000) {
+            EmporiqaJsonResponse::send(503, [
                 'success' => false,
-                'error' => 'Method not allowed.',
+                'error' => 'Cart operations are unavailable.',
                 'checkoutUrl' => null,
                 'cart' => null,
-            ]);
+            ], ['Cache-Control: no-store, private']);
         }
 
-        if (Configuration::get('PS_CATALOG_MODE')) {
-            $this->ajaxResponse([
-                'success' => false,
-                'error' => 'Cart operations are disabled.',
-                'checkoutUrl' => null,
-                'cart' => null,
-            ]);
-        }
+        require_once dirname(__FILE__) . '/../../classes/EmporiqaCartApiEndpoint.php';
+        $endpoint = new EmporiqaCartApiEndpoint($this->context, $this->module, $this);
+        $endpoint->run();
+    }
 
-        if (!$this->validateCsrfToken()) {
-            $this->ajaxResponse([
-                'success' => false,
-                'error' => 'Security check failed. Please refresh the page and try again.',
-                'checkoutUrl' => null,
-                'cart' => null,
-            ]);
-        }
-
-        $action = Tools::getValue('action', '');
-        $allowedActions = ['add', 'get', 'update', 'remove', 'clear', 'checkout-url'];
-
-        if (!in_array($action, $allowedActions, true)) {
-            $this->ajaxResponse([
-                'success' => false,
-                'error' => 'Invalid action.',
-                'checkoutUrl' => null,
-                'cart' => null,
-            ]);
-        }
-
+    /**
+     * The cart as PrestaShop's own CartController returns it. The theme's
+     * updateCart listener (themes/core.js) assigns event.resp.cart to
+     * prestashop.cart, so the storefront JS needs the presented shape.
+     * Here, not in the endpoint, because the presenter is the controller's.
+     *
+     * @return array|null
+     */
+    public function presentCartForTheme()
+    {
         try {
-            $handler = new EmporiqaCartHandler($this->context);
-
-            switch ($action) {
-                case 'add':
-                    $result = $handler->add(
-                        Tools::getValue('product_id', ''),
-                        Tools::getValue('variation_id', ''),
-                        (int) Tools::getValue('quantity', 1)
-                    );
-                    break;
-
-                case 'get':
-                    $result = $handler->get();
-                    break;
-
-                case 'update':
-                    $result = $handler->update(
-                        Tools::getValue('product_id', ''),
-                        Tools::getValue('variation_id', ''),
-                        (int) Tools::getValue('quantity', 1)
-                    );
-                    break;
-
-                case 'remove':
-                    $result = $handler->remove(
-                        Tools::getValue('product_id', ''),
-                        Tools::getValue('variation_id', '')
-                    );
-                    break;
-
-                case 'clear':
-                    $result = $handler->clear();
-                    break;
-
-                case 'checkout-url':
-                    $result = $handler->getCheckoutUrl();
-                    break;
-
-                default:
-                    $result = [
-                        'success' => false,
-                        'error' => 'Invalid action.',
-                        'checkoutUrl' => null,
-                        'cart' => null,
-                    ];
+            // Reloaded, not the context object: a cart the handler just
+            // created holds null address ids, and CartLazyArray's typed
+            // properties fatal on them during json_encode.
+            $cart = new Cart((int) $this->context->cart->id);
+            if (!Validate::isLoadedObject($cart)) {
+                return null;
             }
-        } catch (Exception $e) {
-            PrestaShopLogger::addLog(
-                '[Emporiqa] Cart error: ' . $e->getMessage(),
-                3,
-                null,
-                'Emporiqa'
-            );
-            $result = [
-                'success' => false,
-                'error' => 'An unexpected error occurred.',
-                'checkoutUrl' => null,
-                'cart' => null,
-            ];
+            $presented = $this->cart_presenter->present($cart, true);
+            $filter = $this->get('prestashop.core.filter.front_end_object.product_collection');
+            if (isset($presented['products'])) {
+                $presented['products'] = $filter->filter($presented['products']);
+            }
+
+            // Serialize here so a lazy-array failure lands in the catch
+            // instead of breaking the whole response.
+            $json = json_encode($presented, JSON_INVALID_UTF8_SUBSTITUTE);
+
+            return $json === false ? null : json_decode($json, true);
+        } catch (Throwable $e) {
+            return null;
         }
-
-        $this->ajaxResponse($result);
-    }
-
-    public function initContent()
-    {
-        parent::initContent();
-
-        if (!$this->ajax) {
-            $this->ajaxResponse([
-                'success' => false,
-                'error' => 'Invalid request.',
-                'checkoutUrl' => null,
-                'cart' => null,
-            ]);
-        }
-    }
-
-    private function validateCsrfToken()
-    {
-        $token = (string) Tools::getValue('token', '');
-        if ($token === '') {
-            return false;
-        }
-
-        $module = $this->module;
-        if (!$module instanceof Emporiqa) {
-            return false;
-        }
-
-        // Per-visitor token bound to a nonce in the encrypted PS cookie.
-        // No nonce means the widget never rendered for this visitor (or
-        // cookies are blocked) — fail closed rather than minting one.
-        $expected = $module->getCartApiToken(false);
-        if ($expected === '') {
-            return false;
-        }
-
-        return hash_equals($expected, $token);
-    }
-
-    private function ajaxResponse(array $data)
-    {
-        while (ob_get_level()) {
-            ob_end_clean();
-        }
-        header('Content-Type: application/json');
-        exit(json_encode($data, JSON_INVALID_UTF8_SUBSTITUTE));
     }
 }

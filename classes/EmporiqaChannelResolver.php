@@ -15,7 +15,12 @@ if (!defined('_PS_VERSION_')) {
 
 class EmporiqaChannelResolver
 {
+    /** JSON list of shop ids to sync and show the widget on; empty means every active shop. Ignored outside multistore. */
+    public const ENABLED_SHOPS_KEY = 'EMPORIQA_ENABLED_SHOPS';
+
     private static $mapping;
+    private static $allMapping;
+    private static $shopNames;
     private static $shopContexts;
 
     /** @var Context */
@@ -31,8 +36,14 @@ class EmporiqaChannelResolver
      */
     public function resolveChannelKey($shopId)
     {
+        // The enabled shops first: on a single-shop install that answers
+        // without reading the shop list.
         $mapping = $this->getMapping();
+        if (isset($mapping[$shopId])) {
+            return $mapping[$shopId];
+        }
 
+        $mapping = $this->getAllMapping();
         if (isset($mapping[$shopId])) {
             return $mapping[$shopId];
         }
@@ -51,7 +62,7 @@ class EmporiqaChannelResolver
     }
 
     /**
-     * Get shop ID → channel key mapping.
+     * Get shop ID → channel key mapping for the shops the merchant enabled.
      * Every shop gets a slugified version of its name as the channel key.
      *
      * @return array<int, string>
@@ -62,20 +73,107 @@ class EmporiqaChannelResolver
             return self::$mapping;
         }
 
-        $shops = Shop::getShops(true, null, true);
+        // Single shop: no shop list to read (this runs on every storefront
+        // page view, for the widget).
+        $shop = $this->context->shop;
+        if (!Shop::isFeatureActive() && $shop && $shop->id) {
+            $shopId = (int) $shop->id;
+            self::$mapping = [$shopId => self::slugify($shop->name ?: (string) $shopId)];
 
-        $shopIds = array_map('intval', array_keys($shops));
-        sort($shopIds);
-
-        $mapping = [];
-        foreach ($shopIds as $id) {
-            $shop = new Shop($id);
-            $mapping[$id] = self::slugify($shop->name ?: (string) $id);
+            return self::$mapping;
         }
 
-        self::$mapping = $mapping;
+        $all = $this->getAllMapping();
+        $stored = self::getEnabledShopIds();
+        if (empty($stored) || !Shop::isFeatureActive()) {
+            if (empty($all) && $shop && $shop->id) {
+                $all = [(int) $shop->id => self::slugify($shop->name ?: (string) $shop->id)];
+            }
+            self::$mapping = $all;
+
+            return self::$mapping;
+        }
+
+        // A selection whose shops were all deactivated or deleted since
+        // syncs nothing, never every shop: widening it would push the
+        // catalog of shops the merchant excluded. The settings page warns.
+        self::$mapping = array_intersect_key($all, array_flip($stored));
 
         return self::$mapping;
+    }
+
+    /**
+     * Whether a stored multistore selection matches no active shop, so
+     * nothing is synced and the chat shows nowhere.
+     *
+     * @return bool
+     */
+    public function selectionMatchesNoShop()
+    {
+        return Shop::isFeatureActive() && !empty(self::getEnabledShopIds()) && empty($this->getMapping());
+    }
+
+    /**
+     * Shop ID → channel key for every active shop, enabled or not.
+     *
+     * @return array<int, string>
+     */
+    public function getAllMapping()
+    {
+        if (self::$allMapping !== null) {
+            return self::$allMapping;
+        }
+
+        // Shop::getShops is cached by PrestaShop for the request and carries
+        // the names, so no Shop object is loaded per shop.
+        $shops = Shop::getShops(true);
+        ksort($shops);
+
+        $mapping = [];
+        $names = [];
+        foreach ($shops as $id => $row) {
+            $name = isset($row['name']) ? (string) $row['name'] : '';
+            $mapping[(int) $id] = self::slugify($name !== '' ? $name : (string) $id);
+            $names[(int) $id] = $name;
+        }
+
+        self::$allMapping = $mapping;
+        self::$shopNames = $names;
+
+        return self::$allMapping;
+    }
+
+    /**
+     * Shop ID => shop name for every active shop, from the same list as
+     * getAllMapping().
+     *
+     * @return array<int, string>
+     */
+    public function getShopNames()
+    {
+        $this->getAllMapping();
+
+        return self::$shopNames;
+    }
+
+    /**
+     * @return array<int> shop ids stored in EMPORIQA_ENABLED_SHOPS (empty = all)
+     */
+    public static function getEnabledShopIds()
+    {
+        $ids = json_decode((string) Configuration::getGlobalValue(self::ENABLED_SHOPS_KEY), true);
+
+        return is_array($ids) ? array_values(array_map('intval', $ids)) : [];
+    }
+
+    /**
+     * @param int $shopId
+     *
+     * @return bool
+     */
+    public function isShopEnabled($shopId)
+    {
+        return isset($this->getMapping()[(int) $shopId]);
     }
 
     /**
@@ -93,19 +191,7 @@ class EmporiqaChannelResolver
         $enabledLanguages = EmporiqaLanguageHelper::getEnabledLanguages();
         $contexts = [];
 
-        $mapping = $this->getMapping();
-
-        if (empty($mapping)) {
-            $shopId = (int) $this->context->shop->id;
-            $shop = new Shop($shopId);
-            $channelKey = self::slugify($shop->name ?: (string) $shopId);
-            $contexts[$channelKey] = $this->buildShopContext($shopId, $channelKey, $enabledLanguages);
-            self::$shopContexts = $contexts;
-
-            return self::$shopContexts;
-        }
-
-        foreach ($mapping as $shopId => $channelKey) {
+        foreach ($this->getMapping() as $shopId => $channelKey) {
             $contexts[$channelKey] = $this->buildShopContext($shopId, $channelKey, $enabledLanguages);
         }
 
@@ -210,6 +296,8 @@ class EmporiqaChannelResolver
     public static function reset()
     {
         self::$mapping = null;
+        self::$allMapping = null;
+        self::$shopNames = null;
         self::$shopContexts = null;
     }
 

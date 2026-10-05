@@ -81,17 +81,40 @@
             if (!response.ok) {
                 return buildResponse(false, { error: 'Request failed (' + response.status + ')' });
             }
-            return response.json().then(normalizeResponse).catch(function () {
+            return response.json().then(function (raw) {
+                var result = normalizeResponse(raw);
+                // Only mutations carry ps_cart (EmporiqaCartApiEndpoint),
+                // and only they need the theme's cart refreshed.
+                if (result.success && 'ps_cart' in raw) {
+                    refreshCart(raw.ps_cart);
+                }
+                return result;
+            }).catch(function () {
                 return buildResponse(false, { error: 'Invalid response from server' });
             });
         });
     }
 
-    function refreshCart() {
+    // Same payload shape as core's own emit in themes/_core/js/cart.js: the
+    // core listener assigns event.resp.cart to prestashop.cart and throws
+    // without it, which stops ps_shoppingcart's listener from refreshing the
+    // header badge. linkAction is not 'add-to-cart', so no "added" modal.
+    function refreshCart(psCart) {
         setTimeout(function () {
             try {
                 if (typeof prestashop !== 'undefined' && prestashop.emit) {
-                    prestashop.emit('updateCart', { reason: 'emporiqa' });
+                    var cart = psCart || prestashop.cart || {};
+                    prestashop.emit('updateCart', {
+                        reason: {
+                            linkAction: 'emporiqa',
+                            cart: cart,
+                        },
+                        resp: {
+                            success: true,
+                            hasError: false,
+                            cart: cart,
+                        },
+                    });
                 }
             } catch (e) {}
         }, 0);
@@ -109,12 +132,7 @@
             quantity: item.quantity || 1
         };
 
-        return emporiqaAjax('add', data).then(function (result) {
-            if (result.success) {
-                refreshCart();
-            }
-            return result;
-        });
+        return emporiqaAjax('add', data);
     }
 
     function handleUpdate(items) {
@@ -129,12 +147,7 @@
             quantity: item.quantity || 1
         };
 
-        return emporiqaAjax('update', data).then(function (result) {
-            if (result.success) {
-                refreshCart();
-            }
-            return result;
-        });
+        return emporiqaAjax('update', data);
     }
 
     function handleRemove(items) {
@@ -148,21 +161,11 @@
             variation_id: item.variation_id || ''
         };
 
-        return emporiqaAjax('remove', data).then(function (result) {
-            if (result.success) {
-                refreshCart();
-            }
-            return result;
-        });
+        return emporiqaAjax('remove', data);
     }
 
     function handleClear() {
-        return emporiqaAjax('clear').then(function (result) {
-            if (result.success) {
-                refreshCart();
-            }
-            return result;
-        });
+        return emporiqaAjax('clear', null);
     }
 
     function handleView() {

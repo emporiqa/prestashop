@@ -12,22 +12,33 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-require_once dirname(__FILE__) . '/classes/EmporiqaSignatureHelper.php';
-require_once dirname(__FILE__) . '/classes/EmporiqaLanguageHelper.php';
-require_once dirname(__FILE__) . '/classes/EmporiqaChannelResolver.php';
-require_once dirname(__FILE__) . '/classes/EmporiqaWebhookClient.php';
-require_once dirname(__FILE__) . '/classes/EmporiqaProductFormatter.php';
-require_once dirname(__FILE__) . '/classes/EmporiqaPageFormatter.php';
-require_once dirname(__FILE__) . '/classes/EmporiqaOrderFormatter.php';
-require_once dirname(__FILE__) . '/classes/EmporiqaCartHandler.php';
-require_once dirname(__FILE__) . '/classes/EmporiqaSyncService.php';
+// The class files use PHP 8.0 syntax, so the PHP 7 parser must never read
+// them. This file stays 7.x-parseable so the module can refuse to install
+// with a message instead of a fatal error. EmporiqaJsonResponse and
+// EmporiqaSchema are the exceptions: they parse on 7.2, and uninstall needs
+// the schema there.
+require_once dirname(__FILE__) . '/classes/EmporiqaJsonResponse.php';
+require_once dirname(__FILE__) . '/classes/EmporiqaSchema.php';
+if (PHP_VERSION_ID >= 80000) {
+    require_once dirname(__FILE__) . '/classes/EmporiqaSignatureHelper.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaLanguageHelper.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaChannelResolver.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaWebhookClient.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaProductFormatter.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaPageFormatter.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaOrderFormatter.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaCartHandler.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaSyncService.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaConnectNonce.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaOrderStatus.php';
+}
 
 class Emporiqa extends Module
 {
-    public const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
+    /** Sent as X-Emporiqa-Plugin-Version; keep equal to the $this->version literal (the Addons validator wants a literal there) and config.xml. */
+    public const VERSION = '1.3.0';
 
-    /** Where one-click connect points the browser. Override via Configuration::updateValue('EMPORIQA_BASE_URL', ...) for staging. */
-    public const DEFAULT_BASE_URL = 'https://emporiqa.com';
+    public const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
 
     /** @var EmporiqaWebhookClient|null */
     private $webhookClient;
@@ -45,53 +56,50 @@ class Emporiqa extends Module
     private $syncService;
 
     /**
-     * @var array<int, string> productId => event type (e.g. "product.updated").
+     * Nothing queued: the shape of $pending.
      *
-     * Product changes are queued here during the request and flushed once
-     * at request shutdown so the webhook payload reflects the FINAL DB
-     * state, not the half-committed state visible to whichever hook fired
-     * first. Doubles as per-request dedup: a parent product touched by
-     * five different hooks in the same request emits one webhook.
+     * - product_syncs: productId => event type (e.g. "product.updated").
+     *   Product changes are queued during the request and flushed once at
+     *   request shutdown so the webhook payload reflects the FINAL DB state,
+     *   not the half-committed state visible to whichever hook fired first.
+     *   Doubles as per-request dedup: a parent product touched by five
+     *   different hooks in the same request emits one webhook.
+     * - product_deletes: productId => true. Delete wins on conflict.
+     * - stock: productId => true. Stock/availability-ONLY changes (quantity
+     *   ticks), flushed as a lightweight `product.availability` event instead
+     *   of rebuilding and re-shipping the full product. Mutually exclusive
+     *   with product_syncs: a product already queued for a full
+     *   `product.updated` is never also queued here, and a full sync queued
+     *   afterwards drops the stock entry (the full event already carries the
+     *   final availability).
+     * - page_syncs: cmsId => event type. CMS pages on PS9 also save across
+     *   multiple CQRS commands; we wait for shutdown to read the final state.
+     * - page_deletes: cmsId => true. Delete wins on conflict.
+     * - orders: orderId => chat session id ('' when none). order.completed is
+     *   sent at shutdown, not inside checkout: the shopper's confirmation
+     *   page must never wait on Emporiqa.
      */
-    private $pendingProductSyncs = [];
+    private const NOTHING_PENDING = [
+        'orders' => [],
+        'product_syncs' => [],
+        'product_deletes' => [],
+        'stock' => [],
+        'page_syncs' => [],
+        'page_deletes' => [],
+    ];
 
-    /** @var array<int, true> productId => true. Same flush as syncs; delete wins on conflict. */
-    private $pendingProductDeletes = [];
-
-    /**
-     * @var array<int, true> productId => true.
-     *
-     * Stock/availability-ONLY changes (quantity ticks) are queued here and
-     * flushed as a lightweight `product.availability` event at shutdown,
-     * instead of rebuilding and re-shipping the full product. Mutually
-     * exclusive with `$pendingProductSyncs`: a product already queued for a
-     * full `product.updated` this request is never also queued here, and a
-     * full sync queued afterwards drops the pending stock entry at flush
-     * time (full event already carries the final availability).
-     */
-    private $pendingStockEvents = [];
+    /** @var array<string, array<int, mixed>> see NOTHING_PENDING */
+    private $pending = self::NOTHING_PENDING;
 
     /** @var bool true once we've registered the shutdown callback this request. */
     private $shutdownFlushRegistered = false;
-
-    /**
-     * @var array<int, string> cmsId => event type.
-     *
-     * Same deferred-flush rationale as `$pendingProductSyncs`: CMS pages
-     * on PS9 also save across multiple CQRS commands; we wait for shutdown
-     * to read the final state.
-     */
-    private $pendingPageSyncs = [];
-
-    /** @var array<int, true> cmsId => true. Delete wins on conflict. */
-    private $pendingPageDeletes = [];
 
     public function __construct()
     {
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.2.8';
+        $this->version = '1.3.0';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -110,8 +118,36 @@ class Emporiqa extends Module
         }
 
         $this->displayName = $this->l('Emporiqa');
-        $this->description = $this->l('Integrates PrestaShop with Emporiqa chat assistant.');
+        $this->description = $this->l('Adds the Emporiqa AI salesperson to your shop: it answers shoppers, recommends products from your catalog and guides them to checkout.');
         $this->confirmUninstall = $this->l('Are you sure you want to uninstall Emporiqa? All configuration will be removed.');
+
+        if (!self::isPhpSupported()) {
+            $this->warning = $this->l('Emporiqa needs PHP 8.0 or newer.');
+        }
+    }
+
+    /**
+     * Whether this PHP can run the module. On older PHP the class files are
+     * never loaded: install, getContent and hookDisplayHeader check this,
+     * and the sync and order hooks reach a PHP 8 class only through
+     * isWebhookConfigured() or registerShutdownFlush(), which check it too.
+     *
+     * @return bool
+     */
+    public static function isPhpSupported()
+    {
+        return PHP_VERSION_ID >= 80000;
+    }
+
+    /**
+     * Lets an upgrade script, which runs outside the class, report why it
+     * stopped; PrestaShop shows the module's errors after a failed upgrade.
+     *
+     * @param string $message
+     */
+    public function addUpgradeError($message)
+    {
+        $this->_errors[] = (string) $message;
     }
 
     /**
@@ -120,7 +156,7 @@ class Emporiqa extends Module
     public function getWebhookClient()
     {
         if (!$this->webhookClient) {
-            $this->webhookClient = new EmporiqaWebhookClient($this->getChannelResolver());
+            $this->webhookClient = new EmporiqaWebhookClient($this->getChannelResolver(), $this->context);
         }
 
         return $this->webhookClient;
@@ -171,7 +207,9 @@ class Emporiqa extends Module
             $this->syncService = new EmporiqaSyncService(
                 $this->getWebhookClient(),
                 $this->getProductFormatter(),
-                $this->getPageFormatter()
+                $this->getPageFormatter(),
+                $this->getChannelResolver(),
+                $this->context
             );
         }
 
@@ -220,7 +258,7 @@ class Emporiqa extends Module
     public function installTabs()
     {
         foreach ($this->getTabs() as $tabData) {
-            if (Tab::getIdFromClassName($tabData['class_name'])) {
+            if (Tab::getInstanceFromClassName($tabData['class_name'])->id) {
                 continue;
             }
 
@@ -229,7 +267,7 @@ class Emporiqa extends Module
             $tab->module = $this->name;
             $tab->id_parent = empty($tabData['parent_class_name'])
                 ? 0
-                : (int) Tab::getIdFromClassName($tabData['parent_class_name']);
+                : (int) Tab::getInstanceFromClassName($tabData['parent_class_name'])->id;
             $tab->active = isset($tabData['active']) ? (bool) $tabData['active'] : true;
             $tab->icon = $tabData['icon'] ?? '';
             $tab->route_name = $tabData['route_name'] ?? '';
@@ -249,6 +287,12 @@ class Emporiqa extends Module
 
     public function install()
     {
+        if (!self::isPhpSupported()) {
+            $this->_errors[] = $this->l('Emporiqa needs PHP 8.0 or newer.');
+
+            return false;
+        }
+
         // Multi-shop: the chat assistant is a site-wide feature, not a
         // per-shop one. Force the install context to "all shops" before
         // parent::install() so the merchant gets the widget on every
@@ -307,6 +351,11 @@ class Emporiqa extends Module
         return $result;
     }
 
+    /**
+     * Also runs on PHP 7 (a module installed under 8 and left behind by a PHP
+     * downgrade), so this path and everything it calls use only core classes
+     * and 7.x syntax.
+     */
     public function uninstall()
     {
         return parent::uninstall()
@@ -329,10 +378,17 @@ class Emporiqa extends Module
         Configuration::updateGlobalValue('EMPORIQA_SYNC_PRODUCTS', 1);
         Configuration::updateGlobalValue('EMPORIQA_SYNC_PAGES', 1);
         Configuration::updateGlobalValue('EMPORIQA_ENABLED_LANGUAGES', json_encode($allCodes));
+        // Order tracking is on and offered, as in 1.2.8: ready-made rules,
+        // which replace it, are not offered to every store yet. The module
+        // learns whether they are at connect and on Test connection
+        // (EMPORIQA_RULES_AVAILABLE, see storeRulesStatus).
         Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING', 1);
+        Configuration::updateGlobalValue('EMPORIQA_RULES_AVAILABLE', 0);
+        Configuration::updateGlobalValue('EMPORIQA_LIVE_RULES', '[]');
         Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING_EMAIL', 1);
         Configuration::updateGlobalValue('EMPORIQA_CART_ENABLED', 1);
         Configuration::updateGlobalValue('EMPORIQA_BATCH_SIZE', 25);
+        Configuration::updateGlobalValue(EmporiqaChannelResolver::ENABLED_SHOPS_KEY, '[]');
 
         return true;
     }
@@ -343,29 +399,34 @@ class Emporiqa extends Module
             'EMPORIQA_STORE_ID', 'EMPORIQA_WEBHOOK_URL', 'EMPORIQA_WEBHOOK_SECRET',
             'EMPORIQA_SYNC_PRODUCTS', 'EMPORIQA_SYNC_PAGES', 'EMPORIQA_ENABLED_LANGUAGES',
             'EMPORIQA_ORDER_TRACKING', 'EMPORIQA_ORDER_TRACKING_EMAIL', 'EMPORIQA_CART_ENABLED',
-            'EMPORIQA_BATCH_SIZE',
+            // EmporiqaChannelResolver::ENABLED_SHOPS_KEY, spelled out for PHP 7.
+            'EMPORIQA_BATCH_SIZE', 'EMPORIQA_ENABLED_SHOPS',
             // One-click connect transient (1.2.0+) — cleared on uninstall.
             'EMPORIQA_CONNECT_LAST_ERROR',
+            'EMPORIQA_CLOCK_SKEW_LOGGED',
+            // 1.3.0: ready-made rules status, sync health.
+            'EMPORIQA_RULES_AVAILABLE', 'EMPORIQA_LIVE_RULES',
+            'EMPORIQA_LAST_SYNC_PRODUCTS', 'EMPORIQA_LAST_SYNC_PAGES', 'EMPORIQA_LAST_AUTO_FAIL',
         ];
         // EMPORIQA_BASE_URL is deliberately NOT cleared on uninstall:
         // it's a staging/regional override set by the sysadmin and should
         // survive uninstall + reinstall cycles. Never set in production
-        // (controller falls back to DEFAULT_BASE_URL when unset).
-        if (Shop::isFeatureActive() && Shop::getContext() !== Shop::CONTEXT_ALL) {
-            foreach ($keys as $key) {
-                Configuration::deleteFromContext($key);
-            }
-        } else {
-            foreach ($keys as $key) {
-                Configuration::deleteByName($key);
-            }
+        // (EmporiqaConnectHandshake falls back to its DEFAULT_BASE_URL).
+
+        // deleteByName removes the key's global, shop-group and shop rows
+        // (and their _lang rows). deleteFromContext, used here before 1.3.0
+        // when uninstalling from a single-shop context, removed only that
+        // shop's row and left the rest behind.
+        foreach ($keys as $key) {
+            Configuration::deleteByName($key);
         }
 
-        // Per-session sync guard rows (1.2.7+, EMPORIQA_SSN_<hash>) are
-        // transient global state — always safe to drop.
+        // Per-session sync guard rows (1.2.7+, EMPORIQA_SSN_<hash>, the
+        // EmporiqaSyncService::SESSION_STATS_PREFIX) are transient global
+        // state — always safe to drop.
         Db::getInstance()->execute(
             'DELETE FROM `' . _DB_PREFIX_ . 'configuration` '
-            . "WHERE `name` LIKE '" . pSQL(EmporiqaSyncService::SESSION_STATS_PREFIX) . "%'"
+            . "WHERE `name` LIKE 'EMPORIQA\\_SSN\\_%'"
         );
 
         return true;
@@ -373,38 +434,9 @@ class Emporiqa extends Module
 
     private function installDb()
     {
-        $sql = [];
-
-        $sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'emporiqa_order_session` (
-            `id_order` INT(10) UNSIGNED NOT NULL,
-            `emporiqa_sid` VARCHAR(128) NOT NULL,
-            `date_add` DATETIME NOT NULL,
-            PRIMARY KEY (`id_order`)
-        ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;';
-
-        $sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'emporiqa_order_tracked` (
-            `id_order` INT(10) UNSIGNED NOT NULL,
-            `date_add` DATETIME NOT NULL,
-            PRIMARY KEY (`id_order`)
-        ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;';
-
-        // One-click connect: stores the PKCE verifier keyed by sha256(state).
-        // Rows are atomically consumed on callback and auto-expire after 5 min.
-        $sql[] = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'emporiqa_connect_nonce` (
-            `state_hash` CHAR(64) NOT NULL,
-            `verifier` VARCHAR(128) NOT NULL,
-            `created_at` INT(10) UNSIGNED NOT NULL,
-            PRIMARY KEY (`state_hash`),
-            KEY `idx_created_at` (`created_at`)
-        ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;';
-
-        foreach ($sql as $query) {
-            if (!Db::getInstance()->execute($query)) {
-                return false;
-            }
-        }
-
-        return true;
+        // Not just CREATE IF NOT EXISTS: a table kept from an older version
+        // would otherwise miss columns this version needs.
+        return EmporiqaSchema::ensure();
     }
 
     private function uninstallDb()
@@ -422,9 +454,7 @@ class Emporiqa extends Module
             }
         }
 
-        Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'emporiqa_order_session`');
-        Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'emporiqa_order_tracked`');
-        Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'emporiqa_connect_nonce`');
+        EmporiqaSchema::dropAll();
 
         return true;
     }
@@ -445,6 +475,10 @@ class Emporiqa extends Module
 
     public function getContent()
     {
+        if (!self::isPhpSupported()) {
+            return $this->displayError($this->l('Emporiqa needs PHP 8.0 or newer.'));
+        }
+
         $output = '';
 
         if (Tools::isSubmit('submitEmporiqaSettings')) {
@@ -480,10 +514,31 @@ class Emporiqa extends Module
             $batchSize = 25;
         }
 
-        if (!is_array($enabledLanguages)) {
+        // Keep only codes of languages that exist and are active, so a
+        // stale or forged code can never be stored and later offered.
+        $enabledLanguages = is_array($enabledLanguages)
+            ? array_values(array_intersect(array_keys(EmporiqaLanguageHelper::getActiveLanguageMap()), $enabledLanguages))
+            : [];
+        if (empty($enabledLanguages)) {
             $defaultLang = new Language((int) Configuration::get('PS_LANG_DEFAULT'));
             $defaultCode = Validate::isLoadedObject($defaultLang) ? EmporiqaLanguageHelper::getLangCode($defaultLang) : 'en';
             $enabledLanguages = [$defaultCode];
+        }
+
+        // The shop list is only rendered for multistore installs; without the
+        // marker field the stored selection is left untouched.
+        $enabledShops = null;
+        if (Tools::getValue('EMPORIQA_SHOPS_FIELD')) {
+            $submittedShops = Tools::getValue('EMPORIQA_ENABLED_SHOPS');
+            $submittedShops = is_array($submittedShops) ? array_map('intval', $submittedShops) : [];
+            $activeShopIds = array_keys($this->getChannelResolver()->getAllMapping());
+            $enabledShops = array_values(array_intersect($activeShopIds, $submittedShops));
+            if (empty($enabledShops)) {
+                return $this->displayError($this->l('Tick at least one shop under Shops and languages.'));
+            }
+            if (count($enabledShops) === count($activeShopIds)) {
+                $enabledShops = [];
+            }
         }
 
         if (empty($webhookSecret)) {
@@ -496,10 +551,14 @@ class Emporiqa extends Module
         Configuration::updateGlobalValue('EMPORIQA_SYNC_PRODUCTS', $syncProducts);
         Configuration::updateGlobalValue('EMPORIQA_SYNC_PAGES', $syncPages);
         Configuration::updateGlobalValue('EMPORIQA_ENABLED_LANGUAGES', json_encode($enabledLanguages));
-        Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING', 1);
+        Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING', (int) Tools::getValue('EMPORIQA_ORDER_TRACKING'));
         Configuration::updateGlobalValue('EMPORIQA_ORDER_TRACKING_EMAIL', 1);
         Configuration::updateGlobalValue('EMPORIQA_CART_ENABLED', 1);
         Configuration::updateGlobalValue('EMPORIQA_BATCH_SIZE', $batchSize);
+        if ($enabledShops !== null) {
+            Configuration::updateGlobalValue(EmporiqaChannelResolver::ENABLED_SHOPS_KEY, json_encode($enabledShops));
+        }
+        EmporiqaChannelResolver::reset();
 
         // Cached storefront pages were rendered with the old configuration
         // (possibly without the widget at all) — drop them so the widget
@@ -514,9 +573,28 @@ class Emporiqa extends Module
         $languages = Language::getLanguages(true);
         foreach ($languages as &$lang) {
             $lang['emporiqa_code'] = EmporiqaLanguageHelper::getLangCode($lang);
+            // PrestaShop names a language "English (English)"; the code is
+            // what Emporiqa shows, so "English (en-US)".
+            $plainName = trim((string) preg_replace('/\s*\([^)]*\)\s*$/', '', (string) $lang['name']));
+            $lang['emporiqa_label'] = ($plainName !== '' ? $plainName : (string) $lang['name'])
+                . ' (' . $lang['emporiqa_code'] . ')';
         }
         unset($lang);
-        $enabledLanguages = json_decode(Configuration::get('EMPORIQA_ENABLED_LANGUAGES'), true) ?: EmporiqaLanguageHelper::getEnabledLanguages();
+        $enabledLanguages = EmporiqaLanguageHelper::getEnabledLanguages();
+
+        $resolver = $this->getChannelResolver();
+        $syncedShops = $resolver->getMapping();
+        $shopNames = $resolver->getShopNames();
+        $shops = [];
+        foreach ($resolver->getAllMapping() as $shopId => $channelKey) {
+            $shops[] = [
+                'id' => (int) $shopId,
+                'name' => isset($shopNames[$shopId]) ? $shopNames[$shopId] : (string) $shopId,
+                'channel_key' => $channelKey,
+                'enabled' => isset($syncedShops[$shopId]),
+            ];
+        }
+        $isMultistore = Shop::isFeatureActive() && count($shops) > 1;
 
         $secretSet = !empty(Configuration::get('EMPORIQA_WEBHOOK_SECRET'));
         $storeIdSet = !empty(Configuration::get('EMPORIQA_STORE_ID'));
@@ -535,10 +613,19 @@ class Emporiqa extends Module
         }
 
         $justConnected = (int) Tools::getValue('emporiqa_connected') === 1;
+
+        // Emporiqa says at connect and on Test connection whether this store
+        // has ready-made rules (every connected store does). Until it has
+        // said so, nothing about them is shown and order tracking stays the
+        // 1.2.8 one.
+        $rulesAvailable = (bool) Configuration::get('EMPORIQA_RULES_AVAILABLE');
+        $liveRules = $rulesAvailable ? self::liveRules() : [];
+        $orderTracking = (bool) Configuration::get('EMPORIQA_ORDER_TRACKING');
         $connectInitiateUrl = $this->context->link->getAdminLink('AdminEmporiqaConnect', true, [], [
             'action' => 'initiate',
         ]);
 
+        require_once dirname(__FILE__) . '/classes/EmporiqaConnectHandshake.php';
         $this->context->smarty->assign([
             'emporiqa_module_dir' => $this->_path,
             'emporiqa_module_version' => $this->version,
@@ -549,25 +636,98 @@ class Emporiqa extends Module
             'emporiqa_sync_pages' => Configuration::get('EMPORIQA_SYNC_PAGES'),
             'emporiqa_enabled_languages' => $enabledLanguages,
             'emporiqa_languages' => $languages,
+            'emporiqa_shops' => $shops,
+            'emporiqa_show_shops' => $isMultistore,
+            'emporiqa_shop_context_notice' => $isMultistore && Shop::getContext() !== Shop::CONTEXT_ALL,
+            'emporiqa_shops_none_warning' => $resolver->selectionMatchesNoShop(),
             'emporiqa_token' => Tools::hash($this->name . (int) $this->context->employee->id),
             'emporiqa_sync_ajax_url' => $this->getConfigureUrl(),
             'emporiqa_product_count' => $this->getSyncService()->countProducts(),
             'emporiqa_page_count' => $this->getSyncService()->countPages(),
             'emporiqa_platform_base_url' => $this->getPlatformBaseUrl(),
             'emporiqa_order_tracking_url' => $this->context->link->getModuleLink('emporiqa', 'ordertracking'),
+            'emporiqa_action_url' => (new EmporiqaConnectHandshake($this->context, $this))->actionsBaseUrl(),
+            'emporiqa_order_tracking' => $orderTracking,
+            'emporiqa_rules_available' => $rulesAvailable,
+            'emporiqa_order_status_live' => in_array('order_status', $liveRules, true),
+            'emporiqa_suggest_legacy_off' => $rulesAvailable && $orderTracking
+                && in_array('order_status', $liveRules, true),
+            'emporiqa_sync_health' => $this->getSyncHealth(),
             'emporiqa_batch_size' => (int) Configuration::get('EMPORIQA_BATCH_SIZE') ?: 25,
             // One-click connect (1.2.0+)
             'emporiqa_connect_state' => $connectState,
             'emporiqa_connect_initiate_url' => $connectInitiateUrl,
-            'emporiqa_connect_last_error' => $lastError ?: '',
+            // Stored as "code: message"; the code is for logs, not for the merchant.
+            'emporiqa_connect_last_error' => (string) preg_replace('/^[a-z0-9_]+: /', '', (string) $lastError),
             'emporiqa_just_connected' => $justConnected,
             'emporiqa_https_enabled' => (bool) Configuration::get('PS_SSL_ENABLED'),
         ]);
 
-        $this->context->controller->addCSS($this->_path . 'views/css/admin.css');
-        $this->context->controller->addJS($this->_path . 'views/js/admin-sync.js');
+        $this->context->controller->addCSS($this->_path . 'views/css/admin.css?v=' . $this->assetVersion('views/css/admin.css'));
+        $this->context->controller->addJS($this->_path . 'views/js/admin-sync.js?v=' . $this->assetVersion('views/js/admin-sync.js'));
+        Media::addJsDef(['emporiqaI18n' => $this->getAdminJsStrings()]);
 
         return $this->context->smarty->fetch($this->local_path . 'views/templates/admin/configure.tpl');
+    }
+
+    /**
+     * Cache-buster for a back-office asset: the module version plus the
+     * file's mtime, so a browser refetches after an upgrade and after a
+     * file is replaced in place without a version bump.
+     *
+     * @param string $relativePath path inside the module directory
+     *
+     * @return string
+     */
+    private function assetVersion($relativePath)
+    {
+        $mtime = @filemtime($this->local_path . $relativePath);
+
+        return $this->version . ($mtime ? '-' . $mtime : '');
+    }
+
+    /**
+     * Strings admin-sync.js shows, translated here because the JS has no
+     * translation layer of its own. %1$s / %2$d placeholders are filled in
+     * by the script.
+     *
+     * @return array<string, string>
+     */
+    private function getAdminJsStrings()
+    {
+        $strings = [
+            'products' => $this->l('products'),
+            'pages' => $this->l('pages'),
+            'initializing' => $this->l('Starting the sync...'),
+            'initFailed' => $this->l('The sync could not start.'),
+            'started' => $this->l('Started syncing %1$s.'),
+            'cancelled' => $this->l('Sync cancelled.'),
+            'batchRetry' => $this->l('A batch of %1$s failed. Trying it once more.'),
+            'batchDone' => $this->l('Sent %1$d %3$s (%2$d events).'),
+            'batchFailed' => $this->l('A batch of %1$s failed.'),
+            'finishedWithErrors' => $this->l('The sync finished with errors. The sessions with failed batches were not completed, so nothing was deleted on Emporiqa. Fix the errors and run the sync again.'),
+            'completed' => $this->l('Sync completed.'),
+            'processing' => $this->l('Emporiqa is now processing your data. This can take a few minutes for a large catalog. To follow the progress, open %1$s and %2$s in your Emporiqa dashboard.'),
+            'skippedFailed' => $this->l('The sync of %1$s was not completed because %2$d batch(es) failed. It stays open, so nothing is deleted on Emporiqa.'),
+            'skippedEmpty' => $this->l('The sync of %1$s was not completed because nothing was sent.'),
+            'sessionCompleted' => $this->l('The sync of %1$s is complete.'),
+            'sessionFailed' => $this->l('The sync of %1$s could not be completed.'),
+            'testing' => $this->l('Testing...'),
+            'success' => $this->l('Connection works.'),
+            'requestFailed' => $this->l('The request failed. Reload the page and try again.'),
+            'copied' => $this->l('Copied!'),
+            'technicalDetails' => $this->l('Technical details'),
+            'technicalDetailsHelp' => $this->l('The sample data below is what your shop sends to Emporiqa. You only need it if Emporiqa support asks for it.'),
+            'sampleProduct' => $this->l('Sample product data'),
+            'samplePage' => $this->l('Sample page data'),
+        ];
+
+        // Module::l() HTML-escapes; the script writes these with textContent.
+        foreach ($strings as $key => $text) {
+            $strings[$key] = htmlspecialchars_decode($text, ENT_QUOTES);
+        }
+
+        return $strings;
     }
 
     // -------------------------------------------------------------------------
@@ -577,13 +737,18 @@ class Emporiqa extends Module
     private function handleSyncAjax()
     {
         if (!$this->context->employee || !$this->context->employee->id) {
-            $this->sendJsonAndExit(['success' => false, 'error' => 'Permission denied.']);
+            $this->sendJsonAndExit(['success' => false, 'error' => $this->l('Permission denied.')]);
         }
 
-        $token = Tools::getValue('emporiqa_token', '');
-        $expectedToken = Tools::hash($this->name . (int) $this->context->employee->id);
-        if (empty($token) || $token !== $expectedToken) {
-            $this->sendJsonAndExit(['success' => false, 'error' => 'Invalid security token.']);
+        $token = (string) Tools::getValue('emporiqa_token', '');
+        $expectedToken = (string) Tools::hash($this->name . (int) $this->context->employee->id);
+        if ($token === '' || !hash_equals($expectedToken, $token)) {
+            $this->sendJsonAndExit(['success' => false, 'error' => $this->l('Invalid security token. Reload the page and try again.')]);
+        }
+        // The token proves the employee, not that they may configure this
+        // module: a profile without the module's configure permission is refused.
+        if (!$this->getPermission('configure', $this->context->employee)) {
+            $this->sendJsonAndExit(['success' => false, 'error' => $this->l('Permission denied.')]);
         }
 
         $syncAction = Tools::getValue('sync_action');
@@ -602,8 +767,8 @@ class Emporiqa extends Module
             case 'batch':
                 $entity = Tools::getValue('entity');
                 $sessionId = Tools::getValue('session_id');
-                $page = (int) Tools::getValue('page', 1);
-                $result = $syncService->processBatch($entity, $sessionId, $page, $dryRun);
+                $afterId = (int) Tools::getValue('after_id', 0);
+                $result = $syncService->processBatch($entity, $sessionId, $afterId, $dryRun);
                 break;
 
             case 'complete':
@@ -615,13 +780,29 @@ class Emporiqa extends Module
             case 'test_connection':
                 $result = $this->getWebhookClient()->testConnection();
                 if (!empty($result['success'])) {
+                    // A connected shop learns here, without reconnecting,
+                    // whether Emporiqa now offers ready-made rules.
+                    if (is_array($result['dry_run'] ?? null)) {
+                        self::storeRulesStatus($result['dry_run']);
+                    }
                     $result['sample_product'] = $this->getSampleProductPayload();
                     $result['sample_page'] = $this->getSamplePagePayload();
+                }
+                // Warned from 2 minutes, well inside the 5 minutes Emporiqa
+                // allows, so the merchant hears of a drifting clock before
+                // every sync starts failing.
+                $skew = isset($result['clock_skew']) ? $result['clock_skew'] : null;
+                if ($skew !== null && abs($skew) > 120) {
+                    $result['clock_warning'] = true;
+                    $result['message'] .= ' ' . sprintf(
+                        $this->l('Your server clock is off by %d minutes; Emporiqa refuses signatures more than 5 minutes off. Ask your host to enable NTP.'),
+                        max(1, (int) round(abs($skew) / 60))
+                    );
                 }
                 break;
 
             default:
-                $result = ['success' => false, 'error' => 'Unknown sync action.'];
+                $result = ['success' => false, 'error' => $this->l('Unknown sync action.')];
         }
 
         $this->sendJsonAndExit($result);
@@ -629,11 +810,7 @@ class Emporiqa extends Module
 
     private function sendJsonAndExit(array $data)
     {
-        while (ob_get_level()) {
-            ob_end_clean();
-        }
-        header('Content-Type: application/json');
-        exit(json_encode($data, JSON_INVALID_UTF8_SUBSTITUTE));
+        EmporiqaJsonResponse::send(200, $data);
     }
 
     // -------------------------------------------------------------------------
@@ -642,16 +819,23 @@ class Emporiqa extends Module
 
     public function hookDisplayHeader($params)
     {
+        if (!self::isPhpSupported()) {
+            return;
+        }
+
         $storeId = Configuration::get('EMPORIQA_STORE_ID');
         if (empty($storeId)) {
             return '';
         }
 
-        $enabledLanguages = EmporiqaLanguageHelper::getEnabledLanguages();
-        $language = EmporiqaLanguageHelper::getLangCode($this->context->language);
-        if (!in_array($language, $enabledLanguages, true)) {
-            $language = !empty($enabledLanguages) ? $enabledLanguages[0] : 'en';
+        if (!$this->getChannelResolver()->isShopEnabled((int) $this->context->shop->id)) {
+            return '';
         }
+        // An unticked language is neither synced nor offered: no chat on its pages.
+        if (!EmporiqaLanguageHelper::isLanguageEnabled($this->context->language)) {
+            return '';
+        }
+        $language = EmporiqaLanguageHelper::getLangCode($this->context->language);
 
         $queryParams = [
             'store_id' => $storeId,
@@ -661,37 +845,48 @@ class Emporiqa extends Module
 
         $queryParams['channel'] = $this->getChannelResolver()->getCurrentChannelKey();
 
-        if ($this->context->customer && $this->context->customer->isLogged()) {
-            $webhookSecret = Configuration::get('EMPORIQA_WEBHOOK_SECRET');
-            if (!empty($webhookSecret)) {
-                $queryParams['user_id'] = EmporiqaSignatureHelper::generateUserToken(
-                    (string) $this->context->customer->id,
-                    $webhookSecret
-                );
-            }
-        }
+        // No customer token here: full-page caches would serve it to another
+        // shopper. views/js/front-customer-token.js fetches it uncached.
 
         // Allow other modules to modify widget parameters
         Hook::exec('actionEmporiqaWidgetParams', [
             'params' => &$queryParams,
         ]);
 
-        $webhookUrl = Configuration::get('EMPORIQA_WEBHOOK_URL') ?: self::DEFAULT_WEBHOOK_URL;
-        $parsed = parse_url($webhookUrl);
-        $baseDomain = isset($parsed['host']) ? $parsed['host'] : 'emporiqa.com';
-        $widgetUrl = 'https://' . $baseDomain . '/chat/embed/?' . http_build_query($queryParams);
+        $widgetUrl = $this->getPlatformBaseUrl('https') . '/chat/embed/?' . http_build_query($queryParams);
 
         $cartToken = $this->getCartApiToken();
         $cartApiUrl = $this->context->link->getModuleLink('emporiqa', 'cartapi');
         $checkoutUrl = $this->context->link->getPageLink('order');
 
-        $cartHandlerJs = $this->_path . 'views/js/front-cart-handler.js?v=' . $this->version;
+        // Through PrestaShop's asset manager, so CCC can bundle them and
+        // neither blocks rendering. The token script is deferred: it only
+        // answers once the chat is opened.
+        Media::addJsDef([
+            'emporiqa_cart_config' => [
+                'ajax_url' => $cartApiUrl,
+                'token' => $cartToken,
+                'checkout_url' => $checkoutUrl,
+            ],
+            'emporiqa_token_config' => [
+                'url' => $this->context->link->getModuleLink('emporiqa', 'token'),
+            ],
+        ]);
+        $controller = $this->context->controller;
+        if ($controller instanceof FrontController) {
+            $controller->registerJavascript(
+                'module-emporiqa-cart',
+                'modules/' . $this->name . '/views/js/front-cart-handler.js',
+                ['position' => 'bottom', 'priority' => 200, 'version' => $this->version]
+            );
+            $controller->registerJavascript(
+                'module-emporiqa-customer-token',
+                'modules/' . $this->name . '/views/js/front-customer-token.js',
+                ['position' => 'head', 'priority' => 200, 'attributes' => 'defer', 'version' => $this->version]
+            );
+        }
 
         $this->context->smarty->assign([
-            'emporiqa_cart_ajax_url' => $cartApiUrl,
-            'emporiqa_cart_token' => $cartToken,
-            'emporiqa_checkout_url' => $checkoutUrl,
-            'emporiqa_cart_handler_js' => $cartHandlerJs,
             'emporiqa_widget_url' => $widgetUrl,
         ]);
 
@@ -728,7 +923,7 @@ class Emporiqa extends Module
             }
             try {
                 $nonce = bin2hex(random_bytes(16));
-            } catch (Exception $e) {
+            } catch (Throwable $e) {
                 // random_bytes can throw on a broken /dev/urandom; fall back
                 // to a weaker per-visitor value rather than breaking every
                 // storefront page render.
@@ -771,7 +966,7 @@ class Emporiqa extends Module
         // snapshot where a brand-new product still has `active=0`,
         // which would (and did, May 25 2026 demo) flip the queue to
         // delete -- making the create then "delete wins" at flush and
-        // never landing in Qdrant. `dispatchProductSync` reloads at
+        // never landing in Qdrant. `productSyncEvents` reloads at
         // shutdown and routes inactive products to delete correctly.
         $this->queueProductEvent($productId, 'product.updated');
     }
@@ -838,7 +1033,7 @@ class Emporiqa extends Module
         $productId = (int) $object->id_product;
         $product = new Product($productId);
         if (Validate::isLoadedObject($product) && $product->active) {
-            if (!isset($this->pendingProductSyncs[$productId])) {
+            if (!isset($this->pending['product_syncs'][$productId])) {
                 $this->queueProductEvent($product, 'product.updated');
             }
         }
@@ -846,6 +1041,10 @@ class Emporiqa extends Module
 
     private function handleCombinationDelete($params)
     {
+        if (!self::isPhpSupported()) {
+            return;
+        }
+
         if (!Configuration::get('EMPORIQA_SYNC_PRODUCTS')) {
             return;
         }
@@ -867,7 +1066,7 @@ class Emporiqa extends Module
         $productId = (int) $object->id_product;
         $product = new Product($productId);
         if (Validate::isLoadedObject($product) && $product->active) {
-            if (!isset($this->pendingProductSyncs[$productId])) {
+            if (!isset($this->pending['product_syncs'][$productId])) {
                 $this->queueProductEvent($product, 'product.updated');
             }
         }
@@ -926,7 +1125,7 @@ class Emporiqa extends Module
             return;
         }
 
-        if (isset($this->pendingProductSyncs[$productId])) {
+        if (isset($this->pending['product_syncs'][$productId])) {
             return;
         }
 
@@ -1113,7 +1312,7 @@ class Emporiqa extends Module
         }
 
         $productId = (int) $object->id_product;
-        if ($productId <= 0 || isset($this->pendingProductSyncs[$productId])) {
+        if ($productId <= 0 || isset($this->pending['product_syncs'][$productId])) {
             return;
         }
 
@@ -1150,7 +1349,7 @@ class Emporiqa extends Module
             return;
         }
 
-        $this->pendingPageDeletes[(int) $object->id] = true;
+        $this->pending['page_deletes'][(int) $object->id] = true;
         $this->registerShutdownFlush();
     }
 
@@ -1168,7 +1367,7 @@ class Emporiqa extends Module
         // Just queue the id + event type. The fresh DB load, active /
         // shouldSync checks, and dispatch all happen at shutdown so we
         // see the final settled state instead of a half-committed one.
-        $this->pendingPageSyncs[(int) $object->id] = $eventType;
+        $this->pending['page_syncs'][(int) $object->id] = $eventType;
         $this->registerShutdownFlush();
     }
 
@@ -1183,6 +1382,7 @@ class Emporiqa extends Module
             return;
         }
 
+        // Read now: the cookie belongs to this request.
         $sessionId = $this->getEmporiqaSessionId();
 
         if (!empty($sessionId)) {
@@ -1197,9 +1397,42 @@ class Emporiqa extends Module
             return;
         }
 
+        $this->queueOrderCompleted((int) $order->id, (string) $sessionId);
+    }
+
+    /**
+     * Mark the order tracked and send order.completed at shutdown, so neither
+     * checkout nor a status change waits on Emporiqa. Marked now, so a paid
+     * status set later in the same request (hookActionOrderStatusPostUpdate)
+     * does not queue a second one; a failed send unmarks it.
+     *
+     * @param int $orderId
+     * @param string $sessionId chat session id, '' when none
+     */
+    private function queueOrderCompleted($orderId, $sessionId)
+    {
+        Db::getInstance()->insert('emporiqa_order_tracked', [
+            'id_order' => (int) $orderId,
+            'date_add' => date('Y-m-d H:i:s'),
+        ], false, true, Db::ON_DUPLICATE_KEY);
+        $this->pending['orders'][(int) $orderId] = $sessionId;
+        $this->registerShutdownFlush();
+    }
+
+    /**
+     * The deferred half of hookActionValidateOrder: one order.completed
+     * (the order, its lines and totals, and the chat session id for
+     * conversion attribution), built from the order as committed.
+     */
+    private function dispatchOrderCompleted($orderId, $sessionId)
+    {
+        $ok = true;
         try {
-            $orderFormatter = new EmporiqaOrderFormatter();
-            $eventData = $orderFormatter->formatOrderCompleted($order);
+            $order = new Order($orderId);
+            if (!Validate::isLoadedObject($order)) {
+                return;
+            }
+            $eventData = (new EmporiqaOrderFormatter())->formatOrderCompleted($order);
 
             Hook::exec('actionEmporiqaFormatOrder', [
                 'data' => &$eventData,
@@ -1212,20 +1445,27 @@ class Emporiqa extends Module
                 $eventData['emporiqa_session_id'] = $sessionId;
             }
 
-            $client = $this->getWebhookClient();
-            $client->dispatchEvent('order.completed', $eventData);
-
-            Db::getInstance()->insert('emporiqa_order_tracked', [
-                'id_order' => (int) $order->id,
-                'date_add' => date('Y-m-d H:i:s'),
-            ], false, true, Db::ON_DUPLICATE_KEY);
-        } catch (Exception $e) {
+            $ok = $this->getWebhookClient()->dispatchEvent('order.completed', $eventData);
+            if (!$ok) {
+                PrestaShopLogger::addLog(
+                    '[Emporiqa] Order webhook not accepted for #' . (int) $orderId . '; it is retried on the next paid status.',
+                    2,
+                    null,
+                    'Emporiqa'
+                );
+            }
+        } catch (Throwable $e) {
+            $ok = false;
             PrestaShopLogger::addLog(
-                '[Emporiqa] Order webhook failed for #' . $order->id . ': ' . $e->getMessage(),
+                '[Emporiqa] Order webhook failed for #' . (int) $orderId . ': ' . $e->getMessage(),
                 3,
                 null,
                 'Emporiqa'
             );
+        }
+        if (!$ok) {
+            // Unmarked, so a later paid status reports the order instead.
+            Db::getInstance()->delete('emporiqa_order_tracked', 'id_order = ' . (int) $orderId);
         }
     }
 
@@ -1262,46 +1502,11 @@ class Emporiqa extends Module
             return;
         }
 
-        try {
-            $this->sendOrderCompletedWebhook($orderId);
-
-            Db::getInstance()->insert('emporiqa_order_tracked', [
-                'id_order' => (int) $orderId,
-                'date_add' => date('Y-m-d H:i:s'),
-            ], false, true, Db::ON_DUPLICATE_KEY);
-        } catch (Exception $e) {
-            PrestaShopLogger::addLog(
-                '[Emporiqa] Order status webhook failed for #' . $orderId . ': ' . $e->getMessage(),
-                3,
-                null,
-                'Emporiqa'
-            );
-        }
-    }
-
-    private function sendOrderCompletedWebhook($orderId)
-    {
-        $order = new Order($orderId);
-        if (!Validate::isLoadedObject($order)) {
-            return;
-        }
-
         $sql = new DbQuery();
         $sql->select('emporiqa_sid');
         $sql->from('emporiqa_order_session');
         $sql->where('id_order = ' . (int) $orderId);
-        $sessionId = Db::getInstance()->getValue($sql);
-
-        $orderFormatter = new EmporiqaOrderFormatter();
-        $eventData = $orderFormatter->formatOrderCompleted($order, $sessionId ?: '');
-
-        Hook::exec('actionEmporiqaFormatOrder', [
-            'data' => &$eventData,
-            'order' => $order,
-        ]);
-
-        $client = $this->getWebhookClient();
-        $client->dispatchEvent('order.completed', $eventData);
+        $this->queueOrderCompleted($orderId, (string) Db::getInstance()->getValue($sql));
     }
 
     // -------------------------------------------------------------------------
@@ -1321,7 +1526,7 @@ class Emporiqa extends Module
      *
      * Deferring to `register_shutdown_function`:
      *   1. Coalesces all hook fires for the same product into a single
-     *      webhook (natural dedup via the keyed pendingProductSyncs array)
+     *      webhook (natural dedup via the keyed product_syncs queue)
      *   2. Loads the product FRESH from the DB at flush time, after every
      *      CQRS handler in this request has committed
      *   3. Under PHP-FPM the response is already on the wire by the time
@@ -1351,11 +1556,11 @@ class Emporiqa extends Module
         if (!$productId) {
             return;
         }
-        $this->pendingProductSyncs[$productId] = $eventType;
+        $this->pending['product_syncs'][$productId] = $eventType;
         // A full product.updated supersedes any stock-only event queued
         // earlier this request for the same product — the full payload
         // already carries the final availability_statuses + stock_quantities.
-        unset($this->pendingStockEvents[$productId]);
+        unset($this->pending['stock'][$productId]);
         $this->registerShutdownFlush();
     }
 
@@ -1376,10 +1581,10 @@ class Emporiqa extends Module
             return;
         }
         $productId = (int) $productId;
-        if (!$productId || isset($this->pendingProductSyncs[$productId])) {
+        if (!$productId || isset($this->pending['product_syncs'][$productId])) {
             return;
         }
-        $this->pendingStockEvents[$productId] = true;
+        $this->pending['stock'][$productId] = true;
         $this->registerShutdownFlush();
     }
 
@@ -1389,15 +1594,16 @@ class Emporiqa extends Module
             return;
         }
         $productId = (int) $productId;
-        $this->pendingProductDeletes[$productId] = true;
+        $this->pending['product_deletes'][$productId] = true;
         // Delete supersedes a stock-only event for the same product.
-        unset($this->pendingStockEvents[$productId]);
+        unset($this->pending['stock'][$productId]);
         $this->registerShutdownFlush();
     }
 
     private function registerShutdownFlush()
     {
-        if ($this->shutdownFlushRegistered) {
+        // The flush formats with the PHP 8 classes.
+        if ($this->shutdownFlushRegistered || !self::isPhpSupported()) {
             return;
         }
         $this->shutdownFlushRegistered = true;
@@ -1417,55 +1623,52 @@ class Emporiqa extends Module
      */
     public function flushPendingProductSyncs()
     {
-        if (
-            empty($this->pendingProductSyncs)
-            && empty($this->pendingProductDeletes)
-            && empty($this->pendingStockEvents)
-            && empty($this->pendingPageSyncs)
-            && empty($this->pendingPageDeletes)
-        ) {
-            return;
-        }
-
         // Snapshot + clear so re-entrant hook fires triggered during
         // dispatch (e.g. by actionEmporiqaFormatProduct subscribers)
         // queue into a fresh batch instead of mutating the one we're
         // iterating.
-        $productSyncs = $this->pendingProductSyncs;
-        $productDeletes = $this->pendingProductDeletes;
-        $stockEvents = $this->pendingStockEvents;
-        $pageSyncs = $this->pendingPageSyncs;
-        $pageDeletes = $this->pendingPageDeletes;
-        $this->pendingProductSyncs = [];
-        $this->pendingProductDeletes = [];
-        $this->pendingStockEvents = [];
-        $this->pendingPageSyncs = [];
-        $this->pendingPageDeletes = [];
+        $pending = $this->pending;
+        $this->pending = self::NOTHING_PENDING;
+        if ($pending === self::NOTHING_PENDING) {
+            return;
+        }
 
+        $this->finishResponseEarly();
+
+        $productSyncs = $pending['product_syncs'];
+        $productDeletes = $pending['product_deletes'];
+        $pageDeletes = $pending['page_deletes'];
+
+        // Orders first: a product send that times out can open the circuit
+        // breaker, and an order is never resent by a later save.
+        foreach ($pending['orders'] as $orderId => $sessionId) {
+            $this->dispatchOrderCompleted((int) $orderId, (string) $sessionId);
+        }
+
+        $productGroups = [];
         foreach ($productSyncs as $productId => $eventType) {
             // Delete takes precedence over update when both were queued
             // (e.g. soft-delete sequence: update then deactivate).
             if (isset($productDeletes[$productId])) {
                 continue;
             }
-            $this->dispatchProductSync((int) $productId, (string) $eventType);
+            $productGroups[] = $this->productSyncEvents((int) $productId, (string) $eventType);
         }
         foreach (array_keys($productDeletes) as $productId) {
-            $this->dispatchProductDelete((int) $productId);
+            $productGroups[] = $this->productDeleteEvents((int) $productId);
         }
 
         // Stock-only events last. Skip any product that also got a full
-        // sync or a delete this request (mutual exclusivity / delete wins) —
-        // queue-time guards already prevent most of these, but re-entrant
-        // hook fires during dispatch could have re-added one.
-        foreach (array_keys($stockEvents) as $productId) {
+        // sync or a delete this request (mutual exclusivity / delete wins).
+        foreach (array_keys($pending['stock']) as $productId) {
             if (isset($productSyncs[$productId]) || isset($productDeletes[$productId])) {
                 continue;
             }
-            $this->dispatchStockEvent((int) $productId);
+            $productGroups[] = $this->productStockEvents((int) $productId);
         }
+        $this->dispatchProductGroups($productGroups);
 
-        foreach ($pageSyncs as $cmsId => $eventType) {
+        foreach ($pending['page_syncs'] as $cmsId => $eventType) {
             if (isset($pageDeletes[$cmsId])) {
                 continue;
             }
@@ -1476,19 +1679,61 @@ class Emporiqa extends Module
         }
     }
 
-    private function dispatchProductSync($productId, $eventType)
+    /**
+     * Hand the response to the shopper or merchant before the sends, so they
+     * cost them nothing (PHP-FPM and LiteSpeed; elsewhere the request just
+     * waits for them).
+     *
+     * This runs as a shutdown function, and PrestaShop writes its cookie
+     * from Cookie::__destruct, which runs after shutdown functions. Once the
+     * response is finished that Set-Cookie can no longer reach the browser,
+     * so a login, a cart id or a back-office session change made in this
+     * request would be lost. The cookie is therefore written first.
+     *
+     * Finishing early is kept for every request instead of being skipped for
+     * payment or module controllers: no reliable signal tells those apart
+     * (payment returns and webhooks are ordinary module front controllers),
+     * and anything else they send has already been sent by the time a
+     * shutdown function runs. Cookie::write() itself does nothing when
+     * nothing changed or headers are already out.
+     */
+    private function finishResponseEarly()
+    {
+        if (Tools::isPHPCLI()) {
+            return;
+        }
+        if (isset($this->context->cookie) && $this->context->cookie instanceof Cookie) {
+            try {
+                $this->context->cookie->write();
+            } catch (Throwable $e) {
+                return;
+            }
+        }
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } elseif (function_exists('litespeed_finish_request')) {
+            litespeed_finish_request();
+        }
+    }
+
+    /**
+     * The product.created / product.updated events for one product, [] when
+     * it is gone, vetoed or failed to format. An inactive product becomes
+     * its delete events.
+     *
+     * @return array<int, array{type: string, data: array}>
+     */
+    private function productSyncEvents($productId, $eventType)
     {
         try {
             // Fresh DB load -- the hook params' Product object may carry
             // a pre-commit snapshot from PS9's multi-step CQRS save.
             $product = new Product($productId);
             if (!Validate::isLoadedObject($product)) {
-                return;
+                return [];
             }
             if (!$product->active) {
-                $this->dispatchProductDelete($productId);
-
-                return;
+                return $this->productDeleteEvents($productId);
             }
 
             $shouldSync = true;
@@ -1497,10 +1742,9 @@ class Emporiqa extends Module
                 'event_type' => $eventType,
             ], $shouldSync);
             if (!$shouldSync) {
-                return;
+                return [];
             }
 
-            $client = $this->getWebhookClient();
             $formatted = $this->getProductFormatter()->format($product);
 
             // Let other modules tweak each parent/variation payload.
@@ -1513,22 +1757,25 @@ class Emporiqa extends Module
             }
             unset($item);
 
-            // One request carries the parent + every variation.
             $events = [];
             foreach ($formatted as $item) {
                 $events[] = ['type' => $eventType, 'data' => $item];
             }
-            $client->dispatchEvents($events);
-        } catch (Exception $e) {
-            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
+
+            return $events;
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog('[Emporiqa] Deferred sync failed: ' . $e->getMessage(), 2, null, 'Emporiqa');
+
+            return [];
         }
     }
 
-    private function dispatchProductDelete($productId)
+    /**
+     * @return array<int, array{type: string, data: array}>
+     */
+    private function productDeleteEvents($productId)
     {
         try {
-            $client = $this->getWebhookClient();
-
             $events = [[
                 'type' => 'product.deleted',
                 'data' => ['identification_number' => 'product-' . $productId],
@@ -1544,31 +1791,33 @@ class Emporiqa extends Module
                 }
             }
 
-            $client->dispatchEvents($events);
-        } catch (Exception $e) {
-            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
+            return $events;
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog('[Emporiqa] Deferred sync failed: ' . $e->getMessage(), 2, null, 'Emporiqa');
+
+            return [];
         }
     }
 
     /**
-     * Dispatch a lightweight `product.availability` event for a stock-only
-     * change. Loads the product fresh (post-CQRS) and respects the same
-     * gating as the full sync: inactive products fall through to a delete,
-     * and the `actionEmporiqaShouldSyncProduct` veto is honored so excluded
-     * / unsyncable products never emit. Ships one event per parent +
-     * variation, each carrying only the shared availability contract.
+     * Lightweight `product.availability` events for a stock-only change.
+     * Loads the product fresh (post-CQRS) and respects the same gating as
+     * the full sync: inactive products fall through to a delete, and the
+     * `actionEmporiqaShouldSyncProduct` veto is honored so excluded /
+     * unsyncable products never emit. One event per parent + variation,
+     * each carrying only the shared availability contract.
+     *
+     * @return array<int, array{type: string, data: array}>
      */
-    private function dispatchStockEvent($productId)
+    private function productStockEvents($productId)
     {
         try {
             $product = new Product($productId);
             if (!Validate::isLoadedObject($product)) {
-                return;
+                return [];
             }
             if (!$product->active) {
-                $this->dispatchProductDelete($productId);
-
-                return;
+                return $this->productDeleteEvents($productId);
             }
 
             $shouldSync = true;
@@ -1577,21 +1826,54 @@ class Emporiqa extends Module
                 'event_type' => 'product.availability',
             ], $shouldSync);
             if (!$shouldSync) {
-                return;
-            }
-
-            $items = $this->getProductFormatter()->formatAvailability($product);
-            if (empty($items)) {
-                return;
+                return [];
             }
 
             $events = [];
-            foreach ($items as $item) {
+            foreach ($this->getProductFormatter()->formatAvailability($product) as $item) {
                 $events[] = ['type' => 'product.availability', 'data' => $item];
             }
+
+            return $events;
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog('[Emporiqa] Deferred sync failed: ' . $e->getMessage(), 2, null, 'Emporiqa');
+
+            return [];
+        }
+    }
+
+    /**
+     * Send the products' events in requests of about FLUSH_BATCH_SIZE
+     * events, so a bulk edit of N products costs N/50 requests (each still
+     * capped at SYNC_HOOK_TIMEOUT) instead of N. A product's parent and
+     * variations always travel in one request; a product with more
+     * variations than the batch size goes alone.
+     *
+     * @param array<int, array<int, array{type: string, data: array}>> $groups one list of events per product
+     */
+    private function dispatchProductGroups(array $groups)
+    {
+        $batch = [];
+        foreach ($groups as $events) {
+            if (!empty($batch) && count($batch) + count($events) > EmporiqaWebhookClient::FLUSH_BATCH_SIZE) {
+                $this->dispatchProductBatch($batch);
+                $batch = [];
+            }
+            foreach ($events as $event) {
+                $batch[] = $event;
+            }
+        }
+        if (!empty($batch)) {
+            $this->dispatchProductBatch($batch);
+        }
+    }
+
+    private function dispatchProductBatch(array $events)
+    {
+        try {
             $this->getWebhookClient()->dispatchEvents($events);
-        } catch (Exception $e) {
-            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog('[Emporiqa] Deferred sync failed: ' . $e->getMessage(), 2, null, 'Emporiqa');
         }
     }
 
@@ -1631,8 +1913,8 @@ class Emporiqa extends Module
                 'event_type' => $eventType,
             ]);
             $this->getWebhookClient()->dispatchEvent($eventType, $formatted);
-        } catch (Exception $e) {
-            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog('[Emporiqa] Deferred sync failed: ' . $e->getMessage(), 2, null, 'Emporiqa');
         }
     }
 
@@ -1645,9 +1927,67 @@ class Emporiqa extends Module
             $this->getWebhookClient()->dispatchEvent('page.deleted', [
                 'identification_number' => 'page-' . $cmsId,
             ]);
-        } catch (Exception $e) {
-            PrestaShopLogger::addLog('Emporiqa: ' . $e->getMessage(), 2);
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog('[Emporiqa] Deferred sync failed: ' . $e->getMessage(), 2, null, 'Emporiqa');
         }
+    }
+
+    /**
+     * Keep what Emporiqa said about ready-made rules: whether this store is
+     * offered them, and which are live. Both /connect/exchange and the Test
+     * connection dry run carry it; an answer without the key (an older
+     * platform) changes nothing.
+     *
+     * @param array $answer
+     */
+    public static function storeRulesStatus(array $answer)
+    {
+        if (!array_key_exists('rules_available', $answer)) {
+            return;
+        }
+        $live = [];
+        if (isset($answer['live_rules']) && is_array($answer['live_rules'])) {
+            foreach ($answer['live_rules'] as $key) {
+                if (is_string($key) && preg_match('/^[a-z_]{1,40}$/', $key)) {
+                    $live[] = $key;
+                }
+            }
+        }
+        Configuration::updateGlobalValue('EMPORIQA_RULES_AVAILABLE', $answer['rules_available'] ? 1 : 0);
+        Configuration::updateGlobalValue('EMPORIQA_LIVE_RULES', json_encode($answer['rules_available'] ? $live : []));
+    }
+
+    /**
+     * @return string[] ready-made rule keys Emporiqa last reported live
+     */
+    private static function liveRules()
+    {
+        $live = json_decode((string) Configuration::get('EMPORIQA_LIVE_RULES'), true);
+
+        return is_array($live) ? array_values(array_filter($live, 'is_string')) : [];
+    }
+
+    /**
+     * The Sync tab's health lines: the last full sync of each kind and the
+     * last failed automatic send, as stored by EmporiqaSyncService and
+     * EmporiqaWebhookClient.
+     *
+     * @return array<string, mixed>
+     */
+    private function getSyncHealth()
+    {
+        $health = [];
+        foreach (['products', 'pages'] as $entity) {
+            $row = json_decode((string) Configuration::get('EMPORIQA_LAST_SYNC_' . strtoupper($entity)), true);
+            $health[$entity] = is_array($row) && !empty($row['at']) ? [
+                'at' => Tools::displayDate(date('Y-m-d H:i:s', (int) $row['at']), true),
+                'ok' => !empty($row['ok']),
+            ] : null;
+        }
+        $autoFail = (int) Configuration::get('EMPORIQA_LAST_AUTO_FAIL');
+        $health['auto_fail_at'] = $autoFail > 0 ? Tools::displayDate(date('Y-m-d H:i:s', $autoFail), true) : '';
+
+        return $health;
     }
 
     private function getConfigureUrl()
@@ -1662,12 +2002,20 @@ class Emporiqa extends Module
         return $this->context->link->getAdminLink('AdminModules', true) . '&configure=emporiqa';
     }
 
-    private function getPlatformBaseUrl()
+    /**
+     * The Emporiqa platform's origin, from the webhook URL's host.
+     *
+     * @param string|null $scheme forced scheme; null keeps the webhook URL's
+     *
+     * @return string
+     */
+    private function getPlatformBaseUrl($scheme = null)
     {
-        $webhookUrl = Configuration::get('EMPORIQA_WEBHOOK_URL') ?: self::DEFAULT_WEBHOOK_URL;
-        $parsed = parse_url($webhookUrl);
+        $parsed = parse_url(Configuration::get('EMPORIQA_WEBHOOK_URL') ?: self::DEFAULT_WEBHOOK_URL);
         $host = isset($parsed['host']) ? $parsed['host'] : 'emporiqa.com';
-        $scheme = isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
+        if ($scheme === null) {
+            $scheme = isset($parsed['scheme']) ? $parsed['scheme'] : 'https';
+        }
 
         return $scheme . '://' . $host;
     }
@@ -1681,7 +2029,8 @@ class Emporiqa extends Module
             $sql->innerJoin('product_shop', 'ps', 'p.id_product = ps.id_product AND ps.id_shop = ' . (int) $this->context->shop->id);
             $sql->where('ps.active = 1');
             $sql->orderBy('p.id_product ASC');
-            $sql->limit(1);
+            // No ->limit(1): getRow() appends LIMIT 1 itself, and a second
+            // one is a SQL error that left both samples null.
 
             $row = Db::getInstance()->getRow($sql);
             if (!$row) {
@@ -1696,7 +2045,7 @@ class Emporiqa extends Module
             $formatted = $this->getProductFormatter()->format($product);
 
             return !empty($formatted) ? $formatted[0] : null;
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return null;
         }
     }
@@ -1710,7 +2059,8 @@ class Emporiqa extends Module
             $sql->innerJoin('cms_shop', 'cs', 'c.id_cms = cs.id_cms AND cs.id_shop = ' . (int) $this->context->shop->id);
             $sql->where('c.active = 1');
             $sql->orderBy('c.id_cms ASC');
-            $sql->limit(1);
+            // No ->limit(1): getRow() appends LIMIT 1 itself, and a second
+            // one is a SQL error that left both samples null.
 
             $row = Db::getInstance()->getRow($sql);
             if (!$row) {
@@ -1723,7 +2073,7 @@ class Emporiqa extends Module
             }
 
             return $this->getPageFormatter()->format($cms);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             return null;
         }
     }
@@ -1751,8 +2101,16 @@ class Emporiqa extends Module
         return (string) preg_replace('/[^a-zA-Z0-9_\-]/', '', $raw);
     }
 
+    /**
+     * Also the PHP 8 gate for every sync and order hook: on older PHP (a
+     * module left behind by a PHP downgrade) the class files are not loaded,
+     * so nothing may be queued or sent.
+     */
     private function isWebhookConfigured()
     {
+        if (!self::isPhpSupported()) {
+            return false;
+        }
         $url = Configuration::get('EMPORIQA_WEBHOOK_URL');
         $secret = Configuration::get('EMPORIQA_WEBHOOK_SECRET');
         $storeId = Configuration::get('EMPORIQA_STORE_ID');
@@ -1772,9 +2130,4 @@ class Emporiqa extends Module
         $hookParams['should_sync'] = &$shouldSync;
         Hook::exec($hookName, $hookParams);
     }
-
-    // ensureShutdownFlush() removed in 1.2.0 — every hook now dispatches
-    // immediately via EmporiqaWebhookClient::dispatchEvent (synchronous
-    // send with a 1.5 s total / 500 ms handshake ceiling). The merchant's
-    // admin save / checkout request never waits longer than that.
 }

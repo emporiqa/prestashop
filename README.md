@@ -1,6 +1,6 @@
 # Emporiqa: AI Chatbot for PrestaShop
 
-The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8.1+ and 9 is an online salesperson that closes sales in your store: shoppers describe what they need or upload a photo of something they like, it finds matching products from your catalog, handles objections like "too expensive" with alternatives instead of a discount, answers questions from your CMS pages, and walks shoppers to cart and checkout in 65+ languages. This module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and exposes endpoints for in-chat cart operations and order tracking.
+The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8.1+ and 9 is an online salesperson that closes sales in your store: shoppers describe what they need or upload a photo of something they like, it finds matching products from your catalog, handles objections like "too expensive" with alternatives instead of a discount, answers questions from your CMS pages, and walks shoppers to cart and checkout in 65+ languages. This module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and answers the chat's cart and order status requests.
 
 [![Emporiqa chat widget open on a storefront, answering which noise cancelling headphones under 400 euros suit long flights: it names the Sennheiser Momentum 4 for up to 60 hours with ANC and the Sony WH-1000XM5 at 250 g, and shows both as product cards with photo, price and a Cart button, above a message box with a photo button and a voice button](docs/images/lead-answer.webp)](https://demo.emporiqa.com)
 
@@ -11,8 +11,8 @@ The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8.1+ and 9 is an 
 
 ## Requirements
 
-- PrestaShop 8.1+ or 9.x
-- PHP 7.4+ on PrestaShop 8.1, PHP 8.1+ on PrestaShop 9
+- PrestaShop 8.1+ or 9.x (tested on 8.1 to 9.2)
+- PHP 8.0+ on PrestaShop 8.1, PHP 8.1+ on PrestaShop 9. PrestaShop 8.1 also runs on PHP 7.x; this module does not
 - An [Emporiqa account](https://emporiqa.com/platform/create-store/). Sign up with no card; $25 of signup credit (~100 free conversations) auto-applied
 
 ## Installation
@@ -21,11 +21,11 @@ The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8.1+ and 9 is an 
 2. In your PrestaShop back office, go to **Modules > Module Manager > Upload a Module** and upload `emporiqa.zip`.
 3. Click **Configure** on the Emporiqa module.
 4. Click **Connect to Emporiqa**. A new tab opens on emporiqa.com. Create a free account (no card required, $25 of signup credit) or sign in if you already have one, then pick the store you want to connect (or create a new one). The module is connected when you return.
-5. On the **Sync** tab, click **Send my catalog**. Products, pages, and combinations flow through; the widget appears on your storefront when the first product arrives.
+5. On the **Sync** tab, click **Send my catalog** and keep the tab open until the progress bar is full. Products, pages, and combinations flow through; the widget appears on your storefront when the first product arrives.
 
 **On HTTP, or prefer to paste credentials yourself?** Expand **Edit credentials manually** on the Configure page. Paste a **Store ID** and **Connection Secret** from your Emporiqa dashboard under **Settings → Integration**. Both flows reach the same place.
 
-For order tracking, copy the **Order Tracking URL** shown on the Configure page and paste it into your Emporiqa dashboard under **Integration → Order tracking** (the URL is also auto-derived by one-click connect on most setups).
+For order status in the chat, copy the **Order tracking** address from the Configure page into your Emporiqa dashboard under **Settings → Integration → Order tracking**. It is on by default. Once Emporiqa has told the module that your store has ready-made rules, the Configure page shows a **Ready-made rules** section instead, with each rule marked **On** or **Not added** and an **Open in Emporiqa** link; there the **Order status** rule replaces the order tracking address, which moves under **Advanced**. The module learns whether your store has ready-made rules when you connect and each time you click **Test Connection**.
 
 ## Configuration
 
@@ -39,19 +39,30 @@ The recommended path is **Connect to Emporiqa** (one-click handshake, no credent
 |---------|-------------|---------|
 | Store ID | Your Emporiqa store identifier (filled automatically by one-click connect) | (none) |
 | Connection Secret | HMAC-SHA256 signing secret (filled automatically by one-click connect) | (none) |
-| Order Tracking URL | Read-only endpoint to paste into your Emporiqa dashboard | auto-generated |
+
+**Shops and languages**
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Shops (multistore only) | Shops whose catalog is synced and where the chat is shown. All shops share one Emporiqa store; each shop is a channel | All active shops |
+| Languages | Languages included in sync payloads; their pages show the chat. Pages in an unticked language show no chat | All active shop languages |
+
+**Order tracking**
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Order tracking | Lets the chat answer "Where is my order?" after the shopper gives the order reference and the order's email. Shown in its own section, or under **Advanced** as *Old order tracking* once ready-made rules are offered to your store, where the Order status rule replaces it | On |
 
 **Advanced**
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| Sync Products | Enable real-time product sync | On |
-| Sync Pages | Enable real-time CMS page sync | On |
-| Enabled Languages | Languages included in sync payloads | All active shop languages |
+| Auto-sync products | Send each product change as it is saved | On |
+| Auto-sync pages | Send each CMS page change as it is saved | On |
 | Webhook URL | Emporiqa webhook endpoint | `https://emporiqa.com/webhooks/sync/` |
 | Batch Size | Products/pages per webhook request during bulk sync | 25 |
 
-Order tracking (with customer email verification) and in-chat cart operations are always enabled. No configuration needed.
+In-chat cart operations are always enabled. No configuration needed.
 
 ## AI disclosure
 
@@ -93,33 +104,46 @@ emporiqa/
 ├── config.xml                   # Module metadata
 ├── logo.png                     # Module icon
 ├── classes/
+│   ├── EmporiqaActionEndpoint.php    # Ready-made rules endpoint (order_status, verify)
+│   ├── EmporiqaCartApiEndpoint.php   # Cart API body (POST only, never cached)
 │   ├── EmporiqaCartHandler.php       # In-chat cart operations
 │   ├── EmporiqaChannelResolver.php   # Multi-shop → channel mapping
+│   ├── EmporiqaConnectHandshake.php  # One-click connect handshake body
+│   ├── EmporiqaConnectNonce.php      # One-click connect PKCE verifier store
+│   ├── EmporiqaJsonResponse.php      # The one JSON response helper (PHP 7 parseable)
 │   ├── EmporiqaLanguageHelper.php    # Language mapping utilities
 │   ├── EmporiqaOrderFormatter.php    # Order payload formatting
+│   ├── EmporiqaOrderStatus.php       # Order status lookup, dedupe and rate limit
+│   ├── EmporiqaOrderTrackingEndpoint.php # Order tracking body (rate limited like order_status)
 │   ├── EmporiqaPageFormatter.php     # CMS page payload formatting
 │   ├── EmporiqaProductFormatter.php  # Product/combination payload formatting
+│   ├── EmporiqaSchema.php            # Module tables, created and repaired on install/upgrade
 │   ├── EmporiqaSignatureHelper.php   # HMAC-SHA256 signing & verification
 │   ├── EmporiqaSyncService.php       # Bulk sync orchestration
+│   ├── EmporiqaTokenEndpoint.php     # Signed customer token for the widget
 │   └── EmporiqaWebhookClient.php     # HTTP client for webhook delivery
 ├── controllers/
 │   ├── admin/
 │   │   ├── AdminEmporiqaController.php        # Admin menu tab redirect
 │   │   └── AdminEmporiqaConnectController.php # One-click connect handshake
 │   └── front/
+│       ├── action.php                # Ready-made rules endpoint (/module/emporiqa/action)
 │       ├── cartapi.php               # Cart API endpoint (/module/emporiqa/cartapi)
-│       └── ordertracking.php         # Order tracking endpoint (/module/emporiqa/ordertracking)
+│       ├── ordertracking.php         # Order tracking endpoint (/module/emporiqa/ordertracking)
+│       └── token.php                 # Customer token endpoint (/module/emporiqa/token)
 ├── views/
 │   ├── css/admin.css                 # Admin configuration styles
 │   ├── img/                          # Module images (rectangular logo)
 │   ├── js/
 │   │   ├── admin-sync.js            # Bulk sync UI with progress tracking
-│   │   └── front-cart-handler.js    # Chat widget cart integration
+│   │   ├── front-cart-handler.js    # Chat widget cart integration
+│   │   └── front-customer-token.js  # Hands the customer token to the widget
 │   └── templates/
 │       ├── admin/configure.tpl       # Configuration page template
 │       ├── admin/sync_tab.tpl        # Sync tab template
+│       ├── admin/sync_health_line.tpl # Last full sync line on the Sync tab
 │       └── hook/header.tpl           # Widget embed (displayHeader hook)
-├── translations/                     # Translation catalogues
+├── translations/fr.php               # French back-office translation
 └── upgrade/                          # Version upgrade scripts
 ```
 
@@ -153,15 +177,22 @@ Developers can hook into the sync pipeline to customize payloads or cancel syncs
 |------|---------|----------------|
 | `actionEmporiqaFormatProduct` | Modify product/variation payload before sending | `&$data`, `$product`, `$event_type` |
 | `actionEmporiqaFormatPage` | Modify page payload before sending | `&$data`, `$page`, `$event_type` |
-| `actionEmporiqaFormatOrder` | Modify order tracking payload | `&$data`, `$order` |
+| `actionEmporiqaFormatOrder` | Modify the `order.completed` event payload | `&$data`, `$order` |
 | `actionEmporiqaShouldSyncProduct` | Conditionally cancel a product sync | `$product`, `$event_type`, `&$should_sync` |
 | `actionEmporiqaShouldSyncPage` | Conditionally cancel a page sync | `$page`, `$event_type`, `&$should_sync` |
 | `actionEmporiqaWidgetParams` | Modify chat widget embed parameters | `&$params` |
-| `actionEmporiqaOrderTracking` | Modify order tracking response | `&$data`, `$order` |
+| `actionEmporiqaOrderStatus` | Modify the Order status ready-made rule's answer | `&$data`, `$order` |
+| `actionEmporiqaOrderTracking` | Modify the order tracking response | `&$data`, `$order` |
 
 ## Pricing
 
-The module is paid on PrestaShop Addons and free on [GitHub](https://github.com/emporiqa/prestashop). The Emporiqa service itself is pay-as-you-go: $0/month base + $0.25/conversation, with $25 of signup credit (about 100 conversations) and no card required at signup. After the credit, the monthly cap defaults to $59 and you can change it from the billing dashboard. Voice mode (the shopper speaks and hears the answer read aloud) is optional and off by default: a conversation where the shopper speaks costs $0.25 more, charged once, and counts toward that cap. Prices exclude VAT. Enterprise option for catalogs over 100,000 products. Full pricing at [emporiqa.com/pricing/](https://emporiqa.com/pricing/).
+The module is paid on PrestaShop Addons and free on [GitHub](https://github.com/emporiqa/prestashop). The Emporiqa service itself is pay-as-you-go: $0/month base + $0.25/conversation, with $25 of signup credit (about 100 conversations) and no card required at signup. After the credit, the monthly cap defaults to $59 and you can change it from the billing dashboard. Voice mode (the shopper speaks and hears the answer read aloud) is optional and off by default: a conversation where the shopper speaks costs $0.15 more, charged once, and counts toward that cap. Prices exclude VAT. Enterprise option for catalogs over 100,000 products. Full pricing at [emporiqa.com/pricing/](https://emporiqa.com/pricing/).
+
+## Known issues
+
+- The messages written by the **Sync** and **Test Connection** buttons, and the one-click connect error messages, are in English only. The rest of the configuration page is available in English and French.
+- The controllers under `controllers/` and `emporiqa.php` keep PHP 7 syntax (no trailing commas in calls or parameters), so a shop left on PHP 7 gets a clean error instead of a fatal one; the PHP 8 code lives in `classes/`.
+- The full list, with technical detail, is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Support
 

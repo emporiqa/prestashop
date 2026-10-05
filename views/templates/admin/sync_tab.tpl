@@ -9,7 +9,7 @@
 {if $emporiqa_just_connected}
     <div class="panel emporiqa-welcome-card">
         <h3 class="emporiqa-welcome-h3"><i class="icon-check text-success"></i> {l s='Connected to Emporiqa. One more step.' mod='emporiqa'}</h3>
-        <p>{l s="Send your products and pages to Emporiqa so the chat has something to recommend. We'll send everything in batches in the background." mod='emporiqa'}</p>
+        <p>{l s='Send your products and pages to Emporiqa so the chat has something to recommend. They are sent in small batches, with a progress bar below.' mod='emporiqa'}</p>
         <p>
             <button type="button" id="emporiqa-welcome-send-catalog" class="btn btn-primary btn-lg">
                 <i class="icon-upload"></i> {l s='Send my catalog' mod='emporiqa'}
@@ -19,7 +19,7 @@
             </span>
         </p>
         <p class="text-muted small">
-            {l s="The chat goes live the moment the first product arrives. You don't need to keep this tab open. Sync runs from your store." mod='emporiqa'}
+            {l s='Keep this tab open until the progress bar is full. Emporiqa then finishes processing in the background, and the chat goes live as soon as the first product is ready.' mod='emporiqa'}
         </p>
     </div>
     {literal}
@@ -45,7 +45,7 @@
 
 {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set}
     <div class="alert alert-warning">
-        {l s='Configure your Store ID and Connection Secret in the Settings tab before syncing.' mod='emporiqa'}
+        {l s='This shop is not connected yet. On the Settings tab, click Connect to Emporiqa, then come back here to sync.' mod='emporiqa'}
     </div>
 {/if}
 
@@ -64,9 +64,7 @@
                 </button>
                 <span id="emporiqa-test-result"></span>
             </div>
-            {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set}
-                <p class="help-block text-warning">{l s='Configure your Store ID and Connection Secret first.' mod='emporiqa'}</p>
-            {/if}
+            <p class="help-block">{l s='Checks that Emporiqa accepts your Store ID and Connection Secret, and that your server clock is right. Nothing is synced or changed.' mod='emporiqa'}</p>
             <div id="emporiqa-payload-preview"></div>
         </div>
     </div>
@@ -83,50 +81,58 @@
             {if $emporiqa_sync_products}
                 <p>
                     <strong>{l s='Products' mod='emporiqa'}</strong><br />
-                    {$emporiqa_product_count|intval} {l s='products (all translations included per product)' mod='emporiqa'}
+                    {$emporiqa_product_count|intval} {l s='products, each with all its translations' mod='emporiqa'}<br />
+                    {include file="./sync_health_line.tpl" emporiqa_last=$emporiqa_sync_health.products}
                 </p>
             {else}
                 <p class="emporiqa-sync-disabled-note">
                     <strong>{l s='Products' mod='emporiqa'}</strong><br />
                     <em>{l s='Product sync is disabled.' mod='emporiqa'}
-                    <a href="#settings" class="emporiqa-nav-tab-link" data-target-tab="emporiqa-settings">{l s='Enable it in the Settings tab.' mod='emporiqa'}</a></em>
+                    <a href="#settings" class="emporiqa-nav-tab-link" data-target-tab="emporiqa-settings">{l s='Switch on Auto-sync products under Settings > Advanced.' mod='emporiqa'}</a></em>
                 </p>
             {/if}
             {if $emporiqa_sync_pages}
                 <p>
                     <strong>{l s='Pages' mod='emporiqa'}</strong><br />
-                    {$emporiqa_page_count|intval} {l s='pages (all translations included per page)' mod='emporiqa'}
+                    {$emporiqa_page_count|intval} {l s='pages, each with all its translations' mod='emporiqa'}<br />
+                    {include file="./sync_health_line.tpl" emporiqa_last=$emporiqa_sync_health.pages}
                 </p>
             {else}
                 <p class="emporiqa-sync-disabled-note">
                     <strong>{l s='Pages' mod='emporiqa'}</strong><br />
                     <em>{l s='Page sync is disabled.' mod='emporiqa'}
-                    <a href="#settings" class="emporiqa-nav-tab-link" data-target-tab="emporiqa-settings">{l s='Enable it in the Settings tab.' mod='emporiqa'}</a></em>
+                    <a href="#settings" class="emporiqa-nav-tab-link" data-target-tab="emporiqa-settings">{l s='Switch on Auto-sync pages under Settings > Advanced.' mod='emporiqa'}</a></em>
                 </p>
             {/if}
+            <p>
+                <strong>{l s='Automatic updates' mod='emporiqa'}</strong><br />
+                {if $emporiqa_sync_health.auto_fail_at}
+                    <span class="text-danger">{l s='The last change could not be sent (%s). The next change tries again; if this stays, run Test Connection above.' sprintf=[$emporiqa_sync_health.auto_fail_at] mod='emporiqa'}</span>
+                {else}
+                    <span class="text-success">{l s='Working: your changes are sent as you save them.' mod='emporiqa'}</span>
+                {/if}
+            </p>
         </div>
     </div>
 </div>
 
 {* --- Sync Actions --- *}
 <div class="emporiqa-sync-descriptions">
-    <p><strong>{l s='Sync Products' mod='emporiqa'}</strong> &mdash; {l s='send all products to Emporiqa.' mod='emporiqa'}</p>
-    <p><strong>{l s='Sync Pages' mod='emporiqa'}</strong> &mdash; {l s='send all pages to Emporiqa.' mod='emporiqa'}</p>
-    <p><strong>{l s='Sync All' mod='emporiqa'}</strong> &mdash; {l s='send all products and pages at once.' mod='emporiqa'}</p>
+    <p>{l s='Sync All sends every product and page to Emporiqa. Sync Products and Sync Pages resend only one kind. After the first sync, your changes are sent automatically, so run it again only after a bulk import or a change the documentation lists.' mod='emporiqa'}</p>
 </div>
 
 <div class="emporiqa-sync-actions">
-    <button type="button" id="emporiqa-sync-products" class="btn btn-primary" data-entity="products"
+    <button type="button" id="emporiqa-sync-all" class="btn btn-primary" data-entity="all"
+        {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set}disabled="disabled"{/if}>
+        <i class="icon-globe"></i> {l s='Sync All' mod='emporiqa'}
+    </button>
+    <button type="button" id="emporiqa-sync-products" class="btn btn-default" data-entity="products"
         {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set || !$emporiqa_sync_products}disabled="disabled"{/if}>
         <i class="icon-cubes"></i> {l s='Sync Products' mod='emporiqa'}
     </button>
     <button type="button" id="emporiqa-sync-pages" class="btn btn-default" data-entity="pages"
         {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set || !$emporiqa_sync_pages}disabled="disabled"{/if}>
         <i class="icon-file-text"></i> {l s='Sync Pages' mod='emporiqa'}
-    </button>
-    <button type="button" id="emporiqa-sync-all" class="btn btn-default" data-entity="all"
-        {if !$emporiqa_store_id || !$emporiqa_webhook_secret_set}disabled="disabled"{/if}>
-        <i class="icon-globe"></i> {l s='Sync All' mod='emporiqa'}
     </button>
     <button type="button" id="emporiqa-sync-cancel" class="btn btn-danger" style="display:none;">
         <i class="icon-times"></i> {l s='Cancel' mod='emporiqa'}

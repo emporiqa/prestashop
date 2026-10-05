@@ -39,6 +39,24 @@ class EmporiqaLanguageHelper
     }
 
     /**
+     * Whether the merchant ticked this PS language in the module settings.
+     * Matches the locale and, for configs saved before locales were used,
+     * the bare iso_code.
+     *
+     * @param array|Language $lang Language row or object
+     *
+     * @return bool
+     */
+    public static function isLanguageEnabled($lang)
+    {
+        $enabled = self::getEnabledLanguages();
+        $iso = is_array($lang) ? ($lang['iso_code'] ?? '') : (string) $lang->iso_code;
+
+        return in_array(self::getLangCode($lang), $enabled, true)
+            || ($iso !== '' && in_array($iso, $enabled, true));
+    }
+
+    /**
      * Get the language code to use for a PS language.
      * Prefers locale (en-US) over iso_code (en) for uniqueness.
      *

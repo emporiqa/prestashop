@@ -67,7 +67,7 @@ class EmporiqaCartHandler
             $productId,
             $variationId ?: null,
             false,
-            'up'
+            'up',
         );
 
         if ($result < 0) {
@@ -147,7 +147,7 @@ class EmporiqaCartHandler
             $productId,
             $variationId ?: null,
             false,
-            $operator
+            $operator,
         );
 
         if ($result === false) {
@@ -197,7 +197,7 @@ class EmporiqaCartHandler
             foreach ($products as $product) {
                 $this->context->cart->deleteProduct(
                     (int) $product['id_product'],
-                    (int) $product['id_product_attribute']
+                    (int) $product['id_product_attribute'],
                 );
             }
         }
@@ -254,7 +254,7 @@ class EmporiqaCartHandler
                 $imageUrl = $this->context->link->getImageLink(
                     $product['link_rewrite'] ?? '',
                     $productId . '-' . $imageId,
-                    $imageTypeName
+                    $imageTypeName,
                 );
                 if (strpos($imageUrl, 'http') !== 0) {
                     $imageUrl = 'https://' . $imageUrl;

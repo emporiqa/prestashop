@@ -2,7 +2,7 @@
  * Emporiqa Admin Sync Scripts
  *
  * Handles bulk sync progress UI, connection testing, tab switching,
- * collapsible sections, payload preview, and cross-tab links.
+ * collapsible sections, the technical details of a test, and cross-tab links.
  *
  * @author    Emporiqa
  * @copyright Emporiqa
@@ -15,10 +15,14 @@
     var syncCancelled = false;
     var syncRunning = false;
 
-    function escHtml(str) {
-        var div = document.createElement('div');
-        div.appendChild(document.createTextNode(str));
-        return div.innerHTML;
+    // Translated in PHP (Emporiqa::getAdminJsStrings, via Media::addJsDef).
+    function t(key) {
+        var strings = window.emporiqaI18n || {};
+        return typeof strings[key] === 'string' && strings[key] !== '' ? strings[key] : key;
+    }
+
+    function entityLabel(entity) {
+        return entity === 'pages' ? t('pages') : t('products');
     }
 
     function addLogEntry(msg, type) {
@@ -32,27 +36,37 @@
         log.scrollTop = log.scrollHeight;
     }
 
+    function dashboardLink(href, label) {
+        var a = document.createElement('a');
+        a.href = href;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = label;
+        return a;
+    }
+
     function addSyncCompleteMessage(baseUrl) {
         var log = document.querySelector('.emporiqa-sync-log');
         if (!log) return;
         log.classList.add('visible');
         var p = document.createElement('p');
         p.className = 'log-entry log-info';
-        p.appendChild(document.createTextNode('Your data is now being processed by Emporiqa. This may take a few minutes depending on the number of items. Check the '));
-        var prodLink = document.createElement('a');
-        prodLink.href = baseUrl + '/platform/products/';
-        prodLink.target = '_blank';
-        prodLink.rel = 'noopener';
-        prodLink.textContent = 'Products';
-        p.appendChild(prodLink);
-        p.appendChild(document.createTextNode(' / '));
-        var pageLink = document.createElement('a');
-        pageLink.href = baseUrl + '/platform/pages/';
-        pageLink.target = '_blank';
-        pageLink.rel = 'noopener';
-        pageLink.textContent = 'Pages';
-        p.appendChild(pageLink);
-        p.appendChild(document.createTextNode(' list in your Emporiqa dashboard to follow the progress.'));
+        // Menu names in the Emporiqa dashboard, which is in English. Not
+        // translated: PrestaShop's fallback would turn "Products" into its
+        // own catalog term ("Artikel"), which the dashboard does not show.
+        var links = {
+            '%1$s': dashboardLink(baseUrl + '/platform/products/', 'Products'),
+            '%2$s': dashboardLink(baseUrl + '/platform/pages/', 'Pages'),
+        };
+        var text = t('processing');
+        // The translation decides where the two links sit in the sentence.
+        text.split(/(%[12]\$s)/).forEach(function (part) {
+            if (links[part]) {
+                p.appendChild(links[part]);
+            } else if (part !== '') {
+                p.appendChild(document.createTextNode(part));
+            }
+        });
         log.appendChild(p);
         log.scrollTop = log.scrollHeight;
     }
@@ -199,23 +213,46 @@
         if (!container) return;
 
         container.innerHTML = '';
+        if (!response.sample_product && !response.sample_page) return;
+
+        // Collapsed by default: the JSON is for support, not for the merchant.
+        var body = document.createElement('div');
+        body.className = 'emporiqa-tech-details-body';
+        body.style.display = 'none';
+
+        var help = document.createElement('p');
+        help.className = 'help-block';
+        help.textContent = t('technicalDetailsHelp');
+        body.appendChild(help);
 
         if (response.sample_product) {
-            container.appendChild(
-                createPayloadBlock('Sample Product Payload', response.sample_product)
-            );
+            body.appendChild(createPayloadBlock(t('sampleProduct'), response.sample_product));
+        }
+        if (response.sample_page) {
+            body.appendChild(createPayloadBlock(t('samplePage'), response.sample_page));
         }
 
-        if (response.sample_page) {
-            container.appendChild(
-                createPayloadBlock('Sample Page Payload', response.sample_page)
-            );
-        }
+        container.appendChild(createToggle(t('technicalDetails'), body));
+        container.appendChild(body);
     }
 
     function createPayloadBlock(title, data) {
         var wrapper = document.createElement('div');
 
+        var heading = document.createElement('div');
+        heading.className = 'emporiqa-payload-title';
+        heading.textContent = title;
+
+        var pre = document.createElement('pre');
+        pre.className = 'emporiqa-payload-pre';
+        pre.textContent = JSON.stringify(data, null, 2);
+
+        wrapper.appendChild(heading);
+        wrapper.appendChild(pre);
+        return wrapper;
+    }
+
+    function createToggle(title, target) {
         var toggle = document.createElement('div');
         toggle.className = 'emporiqa-payload-toggle collapsed';
         toggle.setAttribute('tabindex', '0');
@@ -227,38 +264,25 @@
         toggle.appendChild(arrow);
         toggle.appendChild(document.createTextNode(' ' + title));
 
-        var pre = document.createElement('pre');
-        pre.className = 'emporiqa-payload-pre';
-        pre.style.display = 'none';
-        pre.textContent = JSON.stringify(data, null, 2);
-
         toggle.addEventListener('click', function () {
-            togglePayload(toggle, pre);
+            togglePayload(toggle, target);
         });
 
         toggle.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                togglePayload(toggle, pre);
+                togglePayload(toggle, target);
             }
         });
 
-        wrapper.appendChild(toggle);
-        wrapper.appendChild(pre);
-        return wrapper;
+        return toggle;
     }
 
-    function togglePayload(toggle, pre) {
+    function togglePayload(toggle, target) {
         var isCollapsed = toggle.classList.contains('collapsed');
-        if (isCollapsed) {
-            toggle.classList.remove('collapsed');
-            toggle.setAttribute('aria-expanded', 'true');
-            pre.style.display = 'block';
-        } else {
-            toggle.classList.add('collapsed');
-            toggle.setAttribute('aria-expanded', 'false');
-            pre.style.display = 'none';
-        }
+        toggle.classList.toggle('collapsed', !isCollapsed);
+        toggle.setAttribute('aria-expanded', isCollapsed ? 'true' : 'false');
+        target.style.display = isCollapsed ? 'block' : 'none';
     }
 
     // -------------------------------------------------------------------------
@@ -296,7 +320,7 @@
         }
         updateProgress(0);
         setSyncRunning(true);
-        addLogEntry('Initializing sync...', 'info');
+        addLogEntry(t('initializing'), 'info');
 
         ajaxPost(syncUrl, {
             ajax: 1,
@@ -307,8 +331,8 @@
             if (!ok || !response || !response.success) {
                 var reason = (response && (response.error || response.message)) || '';
                 addLogEntry(
-                    'Failed to initialize sync.' + (reason ? ' ' + reason : ''),
-                    'error'
+                    t('initFailed') + (reason ? ' ' + reason : ''),
+                    'error',
                 );
                 setSyncRunning(false);
                 return;
@@ -321,23 +345,18 @@
             var pageCount = data.page_count || 0;
             var totalItems = productCount + pageCount;
 
+            // One entry per session, paged by id (after_id) until a batch
+            // comes back empty, so an item disabled or added mid-sync never
+            // shifts the pages and skips a live one.
             var workQueue = [];
             for (var s = 0; s < sessions.length; s++) {
-                var itemCount = 0;
-                if (sessions[s].entity === 'products') itemCount = productCount;
-                else if (sessions[s].entity === 'pages') itemCount = pageCount;
-
-                var totalPages = Math.ceil(itemCount / itemsPerBatch);
-                addLogEntry(sprintf('Started %1$s sync', sessions[s].entity), 'info');
-
-                for (var p = 1; p <= totalPages; p++) {
-                    workQueue.push({
-                        entity: sessions[s].entity,
-                        session_id: sessions[s].session_id,
-                        page: p,
-                        items_per_batch: itemsPerBatch
-                    });
-                }
+                addLogEntry(sprintf(t('started'), entityLabel(sessions[s].entity)), 'info');
+                workQueue.push({
+                    entity: sessions[s].entity,
+                    session_id: sessions[s].session_id,
+                    after_id: 0,
+                    items_per_batch: itemsPerBatch
+                });
             }
 
             var processed = 0;
@@ -351,7 +370,7 @@
 
             function processBatch() {
                 if (syncCancelled) {
-                    addLogEntry('Sync cancelled.', 'warning');
+                    addLogEntry(t('cancelled'), 'warning');
                     setSyncRunning(false);
                     return;
                 }
@@ -362,7 +381,6 @@
                 }
 
                 var work = workQueue[batchIndex];
-                batchIndex++;
 
                 ajaxPost(syncUrl, {
                     ajax: 1,
@@ -370,27 +388,45 @@
                     sync_action: 'batch',
                     entity: work.entity,
                     session_id: work.session_id,
-                    page: work.page,
+                    after_id: work.after_id,
                     items_per_batch: work.items_per_batch
                 }, function (ok, batchResponse) {
+                    var failed = !ok || !batchResponse || !batchResponse.success;
+                    // One retry of the same page before moving on: a single
+                    // timeout should not leave the session uncompletable.
+                    if (failed && work.retried_after_id !== work.after_id) {
+                        work.retried_after_id = work.after_id;
+                        addLogEntry(
+                            sprintf(t('batchRetry'), entityLabel(work.entity)),
+                            'warning',
+                        );
+                        processBatch();
+                        return;
+                    }
+                    var lastId = batchResponse && batchResponse.last_id;
+                    if (batchResponse && batchResponse.processed > 0 && lastId > work.after_id) {
+                        work.after_id = lastId;
+                    } else {
+                        batchIndex++;
+                    }
                     if (ok && batchResponse && batchResponse.success) {
                         processed += batchResponse.processed || 0;
                         entitySynced[work.entity] = (entitySynced[work.entity] || 0) + (batchResponse.processed || 0);
                         addLogEntry(
                             sprintf(
-                                'Processed %1$d items (%2$d events) for %3$s',
+                                t('batchDone'),
                                 batchResponse.processed || 0,
                                 batchResponse.events || 0,
-                                work.entity
+                                entityLabel(work.entity),
                             ),
-                            'info'
+                            'info',
                         );
                     } else {
                         entityFailures[work.entity] = (entityFailures[work.entity] || 0) + 1;
                         var batchReason = (batchResponse && (batchResponse.error || batchResponse.message)) || '';
                         addLogEntry(
-                            sprintf('Batch failed for %1$s', work.entity) + (batchReason ? '. ' + batchReason : ''),
-                            'error'
+                            sprintf(t('batchFailed'), entityLabel(work.entity)) + (batchReason ? ' ' + batchReason : ''),
+                            'error',
                         );
                     }
 
@@ -405,13 +441,10 @@
             function completeSessions(sessionsList, idx) {
                 if (idx >= sessionsList.length) {
                     if (Object.keys(entityFailures).length > 0 || completionErrors > 0) {
-                        addLogEntry(
-                            'Sync finished with errors. Sessions with failed batches were NOT completed, so nothing was deleted on Emporiqa. Resolve the errors and run the sync again.',
-                            'error'
-                        );
+                        addLogEntry(t('finishedWithErrors'), 'error');
                     } else {
                         updateProgress(100);
-                        addLogEntry('Sync completed successfully!', 'success');
+                        addLogEntry(t('completed'), 'success');
                         var baseUrl = (window.emporiqaSyncConfig || {}).platformBaseUrl || 'https://emporiqa.com';
                         addSyncCompleteMessage(baseUrl);
                     }
@@ -427,20 +460,17 @@
                 if (entityFailures[sess.entity]) {
                     addLogEntry(
                         sprintf(
-                            'Skipped completing the %1$s session: %2$d batch(es) failed. The session was left open so no items get deleted on Emporiqa.',
-                            sess.entity,
-                            entityFailures[sess.entity]
+                            t('skippedFailed'),
+                            entityLabel(sess.entity),
+                            entityFailures[sess.entity],
                         ),
-                        'warning'
+                        'warning',
                     );
                     completeSessions(sessionsList, idx + 1);
                     return;
                 }
                 if (!(entitySynced[sess.entity] > 0)) {
-                    addLogEntry(
-                        sprintf('Skipped completing the %1$s session: no items were synced.', sess.entity),
-                        'warning'
-                    );
+                    addLogEntry(sprintf(t('skippedEmpty'), entityLabel(sess.entity)), 'warning');
                     completeSessions(sessionsList, idx + 1);
                     return;
                 }
@@ -454,15 +484,16 @@
                 }, function (ok, completeResponse) {
                     if (ok && completeResponse && completeResponse.success) {
                         addLogEntry(
-                            sprintf('Completed %1$s sync session', sess.entity),
-                            'success'
+                            sprintf(t('sessionCompleted'), entityLabel(sess.entity)),
+                            'success',
                         );
                     } else {
                         completionErrors++;
                         var completeReason = (completeResponse && (completeResponse.error || completeResponse.message)) || '';
                         addLogEntry(
-                            sprintf('Failed to complete %1$s session', sess.entity) + (completeReason ? '. ' + completeReason : ''),
-                            'error'
+                            sprintf(t('sessionFailed'), entityLabel(sess.entity))
+                                + (completeReason ? ' ' + completeReason : ''),
+                            'error',
                         );
                     }
                     completeSessions(sessionsList, idx + 1);
@@ -530,7 +561,10 @@
                 var resultEl = document.getElementById('emporiqa-test-result');
                 var previewEl = document.getElementById('emporiqa-payload-preview');
                 testBtn.disabled = true;
-                if (resultEl) resultEl.textContent = 'Testing...';
+                if (resultEl) {
+                    resultEl.textContent = t('testing');
+                    resultEl.style.color = '';
+                }
                 if (previewEl) previewEl.innerHTML = '';
 
                 ajaxPost(config.ajaxUrl || '', {
@@ -541,11 +575,12 @@
                     testBtn.disabled = false;
                     if (resultEl) {
                         if (ok && response && response.success) {
-                            resultEl.textContent = response.message || 'Success';
-                            resultEl.style.color = 'green';
+                            resultEl.textContent = response.message || t('success');
+                            resultEl.style.color = response.clock_warning ? '#b45309' : 'green';
                             renderPayloadPreview(response);
                         } else {
-                            var msg = (response && response.message) ? response.message : 'Request failed.';
+                            var msg = (response && (response.message || response.error))
+                                || t('requestFailed');
                             resultEl.textContent = msg;
                             resultEl.style.color = 'red';
                         }
@@ -554,15 +589,14 @@
             });
         }
 
-        // Copy tracking URL button
-        var copyBtn = document.getElementById('emporiqa-copy-tracking-url');
-        if (copyBtn) {
+        // Copy buttons (order tracking and Order status addresses)
+        document.querySelectorAll('.emporiqa-copy-btn').forEach(function (copyBtn) {
             copyBtn.addEventListener('click', function () {
                 var url = this.dataset.url || '';
                 if (!url) return;
                 var showCopied = function () {
                     var originalText = copyBtn.textContent;
-                    copyBtn.textContent = 'Copied!';
+                    copyBtn.textContent = t('copied');
                     setTimeout(function () {
                         copyBtn.textContent = originalText;
                     }, 2000);
@@ -581,7 +615,7 @@
                     showCopied();
                 }
             });
-        }
+        });
 
         // Sync buttons
         ['emporiqa-sync-products', 'emporiqa-sync-pages', 'emporiqa-sync-all'].forEach(function (id) {

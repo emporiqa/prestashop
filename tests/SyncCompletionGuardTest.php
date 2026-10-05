@@ -106,6 +106,17 @@ class Validate
     }
 }
 
+// No language loaded, so the service keeps its English messages.
+class Context
+{
+    public $language;
+
+    public static function getContext()
+    {
+        return new self();
+    }
+}
+
 class Hook
 {
     public static function exec($name, $params = [])
@@ -191,6 +202,14 @@ class EmporiqaPageFormatter
     }
 }
 
+class EmporiqaChannelResolver
+{
+    public function getMapping()
+    {
+        return [1 => 'default'];
+    }
+}
+
 require dirname(__DIR__) . '/classes/EmporiqaSyncService.php';
 
 // ---------------------------------------------------------------------------
@@ -215,7 +234,7 @@ function freshService()
     Configuration::$values = [];
     Db::$instance = new Db();
     $client = new EmporiqaWebhookClient();
-    $service = new EmporiqaSyncService($client, new EmporiqaProductFormatter(), new EmporiqaPageFormatter());
+    $service = new EmporiqaSyncService($client, new EmporiqaProductFormatter(), new EmporiqaPageFormatter(), new EmporiqaChannelResolver());
 
     return [$service, $client];
 }
@@ -238,7 +257,7 @@ list($service, $client) = freshService();
 $sessionId = initProductSession($service);
 
 Db::getInstance()->rows = [['id_product' => 1]];
-$batch = $service->processBatch('products', $sessionId, 1);
+$batch = $service->processBatch('products', $sessionId, 0);
 check('batch succeeds', !empty($batch['success']) && $batch['processed'] === 1);
 
 $complete = $service->completeSync('products', $sessionId);
@@ -255,7 +274,7 @@ $sessionId = initProductSession($service);
 
 Db::getInstance()->rows = [['id_product' => 1]];
 $client->sendBatchReturn = false;
-$batch = $service->processBatch('products', $sessionId, 1);
+$batch = $service->processBatch('products', $sessionId, 0);
 check('batch reports failure', empty($batch['success']));
 
 $client->sendBatchReturn = true; // backend recovered — must not matter
@@ -273,7 +292,7 @@ list($service, $client) = freshService();
 $sessionId = initProductSession($service);
 
 Db::getInstance()->rows = []; // empty batch, technically "successful"
-$batch = $service->processBatch('products', $sessionId, 1);
+$batch = $service->processBatch('products', $sessionId, 0);
 check('empty batch succeeds', !empty($batch['success']) && $batch['processed'] === 0);
 
 $complete = $service->completeSync('products', $sessionId);
@@ -302,13 +321,13 @@ Db::$instance = new Db();
 $client = new EmporiqaWebhookClient();
 $formatter = new EmporiqaProductFormatter();
 $formatter->throwOnFormat = new RuntimeException('boom');
-$service = new EmporiqaSyncService($client, $formatter, new EmporiqaPageFormatter());
+$service = new EmporiqaSyncService($client, $formatter, new EmporiqaPageFormatter(), new EmporiqaChannelResolver());
 $sessionId = initProductSession($service);
 
 Db::getInstance()->rows = [['id_product' => 1]];
 $threw = false;
 try {
-    $service->processBatch('products', $sessionId, 1);
+    $service->processBatch('products', $sessionId, 0);
 } catch (RuntimeException $e) {
     $threw = true;
 }
@@ -330,9 +349,9 @@ $sessionB = initProductSession($service);
 
 Db::getInstance()->rows = [['id_product' => 1]];
 $client->sendBatchReturn = false;
-$service->processBatch('products', $sessionA, 1); // A fails
+$service->processBatch('products', $sessionA, 0); // A fails
 $client->sendBatchReturn = true;
-$service->processBatch('products', $sessionB, 1); // B succeeds afterwards
+$service->processBatch('products', $sessionB, 0); // B succeeds afterwards
 
 $completeA = $service->completeSync('products', $sessionA);
 check('failed session A refused', empty($completeA['success']));

@@ -15,6 +15,9 @@ if (!defined('_PS_VERSION_')) {
 
 class EmporiqaOrderFormatter
 {
+    /** @var bool|null whether {prefix}shipment exists, asked once per request */
+    private static $shipmentTableExists;
+
     /**
      * Format an order for the order.completed webhook event.
      *
@@ -116,6 +119,17 @@ class EmporiqaOrderFormatter
                 $trackingNumber = (string) $orderCarrier->tracking_number;
             }
         }
+        // PrestaShop 9.2's improved shipments keep the number on the
+        // shipment, not on OrderCarrier. This answer has room for one, so the
+        // first shipment's is used, with that shipment's carrier for the URL.
+        $trackingCarrierId = (int) $order->id_carrier;
+        if ($trackingNumber === '') {
+            $shipments = self::shipmentTracking((int) $order->id);
+            if (!empty($shipments)) {
+                $trackingNumber = $shipments[0]['number'];
+                $trackingCarrierId = $shipments[0]['id_carrier'] ?: $trackingCarrierId;
+            }
+        }
         // Loaded WITH the order's language: `delay` is a multilang field, so
         // without $langId it comes back as an array (or empty) and the
         // shopper is told nothing.
@@ -136,13 +150,17 @@ class EmporiqaOrderFormatter
             $carrier = new Carrier((int) $order->id_carrier);
         }
         if (Validate::isLoadedObject($carrier)) {
-            // PrestaShop stores the carrier name as the literal '0' to mean
-            // "use the shop name" (see core OrderLazyArray / delivery slip).
-            $carrierName = $carrier->name == '0'
-                ? (string) Configuration::get('PS_SHOP_NAME')
-                : (string) $carrier->name;
-            if ($trackingNumber !== '' && !empty($carrier->url)) {
-                $trackingUrl = str_replace('@', $trackingNumber, $carrier->url);
+            $carrierName = self::carrierName($carrier);
+            // A shipment's own carrier names the parcel its number tracks.
+            $urlCarrier = $carrier;
+            if ($trackingCarrierId !== (int) $order->id_carrier) {
+                $urlCarrier = new Carrier($trackingCarrierId);
+                if (Validate::isLoadedObject($urlCarrier)) {
+                    $carrierName = self::carrierName($urlCarrier);
+                }
+            }
+            if ($trackingNumber !== '' && Validate::isLoadedObject($urlCarrier) && !empty($urlCarrier->url)) {
+                $trackingUrl = str_replace('@', $trackingNumber, $urlCarrier->url);
             }
             // The carrier's own delivery-time text, e.g. "Delivery next day!".
             // This is PrestaShop's NATIVE estimated-delivery surface: it is
@@ -205,5 +223,68 @@ class EmporiqaOrderFormatter
             'tracking_url' => $trackingUrl,
             'items' => $items,
         ];
+    }
+
+    /**
+     * PrestaShop stores the carrier name as the literal '0' to mean "use the
+     * shop name" (see core OrderLazyArray / delivery slip).
+     *
+     * @return string
+     */
+    public static function carrierName(Carrier $carrier)
+    {
+        return $carrier->name == '0' ? (string) Configuration::get('PS_SHOP_NAME') : (string) $carrier->name;
+    }
+
+    /**
+     * Tracking numbers from PrestaShop 9.2's shipments (the beta
+     * `improved_shipment` feature), which keeps one per shipment in
+     * {prefix}shipment and leaves OrderCarrier's empty. Rows exist only once
+     * the feature has split an order into shipments, so with it off this
+     * finds nothing; before 9.2 the table does not exist and is not queried.
+     *
+     * @param int $idOrder
+     * @param Db|null $db
+     *
+     * @return array<int, array{number: string, id_carrier: int}> oldest shipment first, distinct numbers
+     */
+    public static function shipmentTracking($idOrder, $db = null)
+    {
+        $db = $db ?: Db::getInstance();
+        $table = _DB_PREFIX_ . 'shipment';
+        try {
+            if (self::$shipmentTableExists === null) {
+                // _ and % escaped: LIKE would read the prefix's _ as a wildcard.
+                self::$shipmentTableExists = !empty($db->executeS(
+                    "SHOW TABLES LIKE '" . pSQL(addcslashes($table, '_%')) . "'",
+                    true,
+                    false,
+                ));
+            }
+            if (!self::$shipmentTableExists) {
+                return [];
+            }
+            $rows = $db->executeS(
+                'SELECT `tracking_number`, `id_carrier` FROM `' . bqSQL($table) . '` '
+                . 'WHERE `id_order` = ' . (int) $idOrder . ' AND `deleted` = 0 AND `cancelled_at` IS NULL '
+                . "AND `tracking_number` IS NOT NULL AND `tracking_number` <> '' "
+                . 'ORDER BY `id_shipment` ASC',
+                true,
+                false,
+            );
+        } catch (Throwable $e) {
+            // A beta schema that moves must not take order lookups down with it.
+            return [];
+        }
+
+        $found = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            $number = trim((string) $row['tracking_number']);
+            if ($number !== '' && !isset($found[$number])) {
+                $found[$number] = ['number' => $number, 'id_carrier' => (int) $row['id_carrier']];
+            }
+        }
+
+        return array_values($found);
     }
 }
