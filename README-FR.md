@@ -25,7 +25,7 @@ Le chatbot IA [Emporiqa](https://emporiqa.com) pour PrestaShop 8.1+ et 9 est un 
 
 **Site en HTTP, ou vous préférez coller les identifiants vous-même ?** Dépliez **Modifier les identifiants manuellement** sur la page Configurer. Collez le **Store ID** et le **Connection Secret** affichés dans votre tableau de bord Emporiqa, sous **Settings → Integration** (le tableau de bord est en anglais). Les deux chemins mènent au même résultat.
 
-Pour donner le statut des commandes dans le chat, copiez l'adresse **Suivi de commande** de la page Configurer dans votre tableau de bord Emporiqa, sous **Settings → Integration → Order tracking**. Il est activé par défaut. Dès qu'Emporiqa a indiqué au module que votre boutique a accès aux règles prêtes à l'emploi, la page Configurer affiche à la place une section **Règles prêtes à l'emploi**, chaque règle marquée **Activée** ou **Non ajoutée** avec un lien **Ouvrir dans Emporiqa** ; la règle **Statut de commande** y remplace l'adresse de suivi de commande, qui passe sous **Avancé**. Le module apprend si votre boutique a accès aux règles prêtes à l'emploi lors de la connexion et à chaque clic sur **Tester la connexion**.
+**Statut de commande dans le chat.** Une fois le module connecté, la page Configurer affiche une section **Règles prêtes à l'emploi**. Cliquez sur **Ouvrir dans Emporiqa** à côté de **Statut de commande**, puis, dans Emporiqa, cliquez sur **Try it** pour tester la règle et sur **Go live** pour l'activer (le tableau de bord est en anglais). Vous n'avez rien à copier : Emporiqa renseigne lui-même l'adresse de votre boutique lors de la connexion en un clic. Si jamais il vous la demande, le champ **Adresse du statut de commande** de la même section affiche celle à utiliser, avec un bouton **Copier**. La règle répond à « Où est ma commande ? » à partir de vos commandes PrestaShop : un client connecté à votre boutique donne seulement la référence de commande, un invité donne aussi l'e-mail de la commande. Si vous vous êtes connecté avec des identifiants saisis à la main et que la section n'apparaît pas encore, cliquez sur **Tester la connexion** dans l'onglet Synchronisation. Les boutiques qui utilisent déjà l'ancienne adresse de suivi de commande continuent de fonctionner comme avant ; une fois la règle Statut de commande activée, la note sous **Avancé** explique comment désactiver l'ancien suivi.
 
 ## Configuration
 
@@ -47,11 +47,12 @@ La méthode recommandée est **Se connecter à Emporiqa** (échange signé en un
 | Boutiques (multiboutique uniquement) | Boutiques dont le catalogue est synchronisé et où le chat s'affiche. Toutes les boutiques partagent une seule boutique Emporiqa ; chaque boutique y est un canal | Toutes les boutiques actives |
 | Langues | Langues incluses dans les données synchronisées ; leurs pages affichent le chat. Les pages dans une langue non cochée n'affichent pas le chat | Toutes les langues actives de la boutique |
 
-**Suivi de commande**
+**Règles prêtes à l'emploi**
 
 | Paramètre | Description | Par défaut |
 |-----------|-------------|------------|
-| Suivi de commande | Permet au chat de répondre à « Où est ma commande ? » une fois que le client a donné la référence et l'e-mail de la commande. Affiché dans sa propre section, ou sous **Avancé** comme *Ancien suivi de commande* dès que les règles prêtes à l'emploi sont proposées à votre boutique, où la règle Statut de commande le remplace | Activé |
+| Adresse du statut de commande | L'adresse qu'Emporiqa appelle pour la règle Statut de commande. Emporiqa la renseigne lui-même ; ne la copiez que s'il vous la demande | générée automatiquement |
+| Suivi de commande | L'ancienne façon de répondre à « Où est ma commande ? », remplacée par la règle Statut de commande. Il continue de fonctionner pour les boutiques qui l'utilisent déjà, et passe sous **Avancé** comme *Ancien suivi de commande* dès que les règles prêtes à l'emploi s'affichent | Activé |
 
 **Avancé**
 

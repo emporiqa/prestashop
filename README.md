@@ -25,7 +25,7 @@ The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8.1+ and 9 is an 
 
 **On HTTP, or prefer to paste credentials yourself?** Expand **Edit credentials manually** on the Configure page. Paste a **Store ID** and **Connection Secret** from your Emporiqa dashboard under **Settings → Integration**. Both flows reach the same place.
 
-For order status in the chat, copy the **Order tracking** address from the Configure page into your Emporiqa dashboard under **Settings → Integration → Order tracking**. It is on by default. Once Emporiqa has told the module that your store has ready-made rules, the Configure page shows a **Ready-made rules** section instead, with each rule marked **On** or **Not added** and an **Open in Emporiqa** link; there the **Order status** rule replaces the order tracking address, which moves under **Advanced**. The module learns whether your store has ready-made rules when you connect and each time you click **Test Connection**.
+**Order status in the chat.** Once connected, the Configure page shows a **Ready-made rules** section. Click **Open in Emporiqa** next to **Order status**, then in Emporiqa click **Try it** to test the rule and **Go live** to switch it on. You do not need to copy anything: Emporiqa fills in your shop's address by itself when you connect in one click. If it ever asks for the address, the **Order status address** field in the same section shows the one to use, with a **Copy** button. The rule answers "Where is my order?" from your PrestaShop orders: a shopper signed in to your shop only gives the order reference, and a guest also gives the order's email. If you connected with manual credentials and the section does not show yet, click **Test Connection** on the Sync tab. Shops that already set up the older order tracking address keep it working as before; once Order status is on, the note under **Advanced** tells you how to switch the old one off.
 
 ## Configuration
 
@@ -47,11 +47,12 @@ The recommended path is **Connect to Emporiqa** (one-click handshake, no credent
 | Shops (multistore only) | Shops whose catalog is synced and where the chat is shown. All shops share one Emporiqa store; each shop is a channel | All active shops |
 | Languages | Languages included in sync payloads; their pages show the chat. Pages in an unticked language show no chat | All active shop languages |
 
-**Order tracking**
+**Ready-made rules**
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| Order tracking | Lets the chat answer "Where is my order?" after the shopper gives the order reference and the order's email. Shown in its own section, or under **Advanced** as *Old order tracking* once ready-made rules are offered to your store, where the Order status rule replaces it | On |
+| Order status address | The address Emporiqa calls for the Order status rule. Emporiqa fills it in by itself; copy it only if Emporiqa asks for it | auto-generated |
+| Order tracking | The older way to answer "Where is my order?", replaced by the Order status rule. It keeps working for shops that already use it, and sits under **Advanced** as *Old order tracking* once ready-made rules show | On |
 
 **Advanced**
 
