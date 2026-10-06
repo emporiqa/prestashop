@@ -481,10 +481,10 @@ class EmporiqaWebhookClient
             return self::failure($this->t('No Connection Secret is saved yet. Connect to Emporiqa on the Settings tab.'));
         }
 
-        $jsonPayload = json_encode($payload);
+        $jsonPayload = EmporiqaJsonResponse::encode($payload);
         if ($jsonPayload === false) {
             $this->log('JSON encode error: ' . json_last_error_msg() . ' — retrying with UTF-8 substitution');
-            $jsonPayload = json_encode($payload, JSON_INVALID_UTF8_SUBSTITUTE);
+            $jsonPayload = EmporiqaJsonResponse::encode($payload, JSON_INVALID_UTF8_SUBSTITUTE);
         }
         if ($jsonPayload === false) {
             $this->log('JSON encode failed: ' . json_last_error_msg());

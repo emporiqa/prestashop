@@ -71,6 +71,21 @@ class EmporiqaOrderStatus
             }
         }
 
+        return self::countHits($buckets, $shopBucket);
+    }
+
+    /**
+     * Count one hit on each bucket in the current window and say which
+     * limit, if any, is now exceeded (see rateLimitHit). Shared by every
+     * action of the endpoint, each with its own bucket names.
+     *
+     * @param array<string, int> $buckets bucket => limit per window
+     * @param string $shopBucket the bucket whose excess holds every value back
+     *
+     * @return array{scope: string, retry_after: int}|null
+     */
+    public static function countHits(array $buckets, $shopBucket)
+    {
         $now = time();
         $windowEnd = $now - ($now % self::RATE_WINDOW_SECONDS) + self::RATE_WINDOW_SECONDS;
         $table = '`' . _DB_PREFIX_ . self::RATE_TABLE . '`';

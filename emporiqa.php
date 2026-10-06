@@ -31,14 +31,30 @@ if (PHP_VERSION_ID >= 80000) {
     require_once dirname(__FILE__) . '/classes/EmporiqaSyncService.php';
     require_once dirname(__FILE__) . '/classes/EmporiqaConnectNonce.php';
     require_once dirname(__FILE__) . '/classes/EmporiqaOrderStatus.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaCustomerPrices.php';
 }
 
 class Emporiqa extends Module
 {
     /** Sent as X-Emporiqa-Plugin-Version; keep equal to the $this->version literal (the Addons validator wants a literal there) and config.xml. */
-    public const VERSION = '1.3.0';
+    public const VERSION = '1.3.1';
 
     public const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
+
+    // How often storefront traffic checks for dated prices that started or
+    // ended (queueScheduledPriceChanges).
+    private const PRICE_WINDOW_CHECK_SECONDS = 900;
+
+    // Products one request re-sends for a price change that no product save
+    // reports (a catalog price rule, a dated price starting or ending), after
+    // the response. More than that and the merchant is asked to run a full
+    // sync instead, as for any catalog-wide change.
+    private const PRICE_CHANGE_MAX_PRODUCTS = 100;
+
+    // The dated-price check: every start or end up to SENT_UNTIL has been
+    // sent; RUN_AT is when a request last claimed the check.
+    private const PRICE_WINDOW_SENT_UNTIL = 'EMPORIQA_PRICE_WINDOW_SENT_UNTIL';
+    private const PRICE_WINDOW_RUN_AT = 'EMPORIQA_PRICE_WINDOW_RUN_AT';
 
     /** @var EmporiqaWebhookClient|null */
     private $webhookClient;
@@ -78,6 +94,8 @@ class Emporiqa extends Module
      * - orders: orderId => chat session id ('' when none). order.completed is
      *   sent at shutdown, not inside checkout: the shopper's confirmation
      *   page must never wait on Emporiqa.
+     * - price_window: the dated-price check this request claimed
+     *   (sent_until, more), saved once its products are sent.
      */
     private const NOTHING_PENDING = [
         'orders' => [],
@@ -86,6 +104,7 @@ class Emporiqa extends Module
         'stock' => [],
         'page_syncs' => [],
         'page_deletes' => [],
+        'price_window' => [],
     ];
 
     /** @var array<string, array<int, mixed>> see NOTHING_PENDING */
@@ -94,12 +113,21 @@ class Emporiqa extends Module
     /** @var bool true once we've registered the shutdown callback this request. */
     private $shutdownFlushRegistered = false;
 
+    /** @var array<int, bool> catalog price rules whose products this request queued */
+    private $queuedPriceRules = [];
+
+    /** @var int products queued this request for a catalog price rule */
+    private $priceRuleProducts = 0;
+
+    /** @var bool a price rule covered more than PRICE_CHANGE_MAX_PRODUCTS this request */
+    private $priceRuleOverflow = false;
+
     public function __construct()
     {
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.3.0';
+        $this->version = '1.3.1';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -326,6 +354,10 @@ class Emporiqa extends Module
             && $this->registerHook('actionObjectSpecificPriceAddAfter')
             && $this->registerHook('actionObjectSpecificPriceUpdateAfter')
             && $this->registerHook('actionObjectSpecificPriceDeleteAfter')
+            && $this->registerHook('actionObjectSpecificPriceRuleUpdateBefore')
+            && $this->registerHook('actionObjectSpecificPriceRuleDeleteBefore')
+            && $this->registerHook('actionAdminSpecificPriceRuleControllerDeleteBefore')
+            && $this->registerHook('actionAdminSpecificPriceRuleControllerBulkdeleteBefore')
             && $this->registerHook('actionObjectCurrencyUpdateAfter')
             && $this->registerHook('actionObjectTaxUpdateAfter')
             && $this->registerHook('actionObjectTaxRulesGroupUpdateAfter')
@@ -407,6 +439,7 @@ class Emporiqa extends Module
             // 1.3.0: ready-made rules status, sync health.
             'EMPORIQA_RULES_AVAILABLE', 'EMPORIQA_LIVE_RULES',
             'EMPORIQA_LAST_SYNC_PRODUCTS', 'EMPORIQA_LAST_SYNC_PAGES', 'EMPORIQA_LAST_AUTO_FAIL',
+            'EMPORIQA_PRICE_WINDOW_SENT_UNTIL', 'EMPORIQA_PRICE_WINDOW_RUN_AT',
         ];
         // EMPORIQA_BASE_URL is deliberately NOT cleared on uninstall:
         // it's a staging/regional override set by the sysadmin and should
@@ -506,7 +539,8 @@ class Emporiqa extends Module
             return $this->displayError($this->l('Invalid Store ID.'));
         }
 
-        if (!empty($webhookUrl) && !Validate::isAbsoluteUrl($webhookUrl)) {
+        require_once dirname(__FILE__) . '/classes/EmporiqaConnectHandshake.php';
+        if (!empty($webhookUrl) && !EmporiqaConnectHandshake::isEmporiqaWebhookUrl($webhookUrl)) {
             return $this->displayError($this->l('Invalid Webhook URL.'));
         }
 
@@ -828,6 +862,8 @@ class Emporiqa extends Module
             return '';
         }
 
+        $this->queueScheduledPriceChanges();
+
         if (!$this->getChannelResolver()->isShopEnabled((int) $this->context->shop->id)) {
             return '';
         }
@@ -1125,7 +1161,9 @@ class Emporiqa extends Module
             return;
         }
 
-        if (isset($this->pending['product_syncs'][$productId])) {
+        if (isset($this->pending['product_syncs'][$productId])
+            || (!empty($object->id_specific_price_rule) && $this->priceRuleOverflow)
+        ) {
             return;
         }
 
@@ -1134,7 +1172,261 @@ class Emporiqa extends Module
             return;
         }
 
+        // A catalog price rule writes one row per product it covers, so
+        // saving a rule on a large catalog lands here once per product.
+        if (!empty($object->id_specific_price_rule)) {
+            $this->queuePriceRuleProducts([$productId]);
+
+            return;
+        }
+
         $this->queueProductEvent($product, 'product.updated');
+    }
+
+    // The rows a catalog price rule drops (rule deleted, or a product no
+    // longer matching its conditions) go with a raw DELETE that fires no
+    // hook, and those products would keep the rule's discount in the chat.
+    // Before the rule changes, queue every product it currently covers; the
+    // flush runs after the save and the rule's re-application, so each one
+    // is sent as it ends up.
+
+    public function hookActionObjectSpecificPriceRuleUpdateBefore($params)
+    {
+        $rule = isset($params['object']) ? $params['object'] : null;
+        if ($rule && !empty($rule->id)) {
+            $this->queueProductsOfPriceRules([(int) $rule->id]);
+        }
+    }
+
+    // The legacy Catalog price rules page (PrestaShop's default while its
+    // catalog_price_rule feature flag is off) fires these before the delete,
+    // while the rule's rows still exist.
+
+    public function hookActionAdminSpecificPriceRuleControllerDeleteBefore($params)
+    {
+        $this->queueProductsOfPriceRules([(int) Tools::getValue('id_specific_price_rule')]);
+    }
+
+    public function hookActionAdminSpecificPriceRuleControllerBulkdeleteBefore($params)
+    {
+        $ids = Tools::getValue('specific_price_ruleBox');
+        $this->queueProductsOfPriceRules(is_array($ids) ? $ids : []);
+    }
+
+    /**
+     * Any other delete (the Symfony page, the API, another module).
+     * SpecificPriceRule::delete() has already removed the rule's conditions
+     * and rows when this fires, so which products it covered is lost: every
+     * product of the rule's shop may have carried it.
+     */
+    public function hookActionObjectSpecificPriceRuleDeleteBefore($params)
+    {
+        $rule = isset($params['object']) ? $params['object'] : null;
+        if (!$rule || empty($rule->id) || isset($this->queuedPriceRules[(int) $rule->id])
+            || !Configuration::get('EMPORIQA_SYNC_PRODUCTS')
+        ) {
+            return;
+        }
+        $this->queuedPriceRules[(int) $rule->id] = true;
+
+        $rows = Db::getInstance()->executeS(
+            'SELECT DISTINCT `id_product` FROM `' . _DB_PREFIX_ . 'product_shop` WHERE `active` = 1'
+            . (!empty($rule->id_shop) ? ' AND `id_shop` = ' . (int) $rule->id_shop : '')
+            . ' LIMIT ' . (self::PRICE_CHANGE_MAX_PRODUCTS + 1)
+        );
+        $this->queuePriceRuleProducts(array_column($rows ?: [], 'id_product'));
+    }
+
+    /**
+     * @param array $ruleIds catalog price rule ids, from the request or a hook
+     */
+    private function queueProductsOfPriceRules(array $ruleIds)
+    {
+        if (!Configuration::get('EMPORIQA_SYNC_PRODUCTS')) {
+            return;
+        }
+
+        $ids = [];
+        foreach ($ruleIds as $ruleId) {
+            $ruleId = (int) $ruleId;
+            if ($ruleId > 0 && !isset($this->queuedPriceRules[$ruleId])) {
+                $this->queuedPriceRules[$ruleId] = true;
+                $ids[] = $ruleId;
+            }
+        }
+        if (empty($ids)) {
+            return;
+        }
+
+        $rows = Db::getInstance()->executeS(
+            'SELECT DISTINCT `id_product` FROM `' . _DB_PREFIX_ . 'specific_price`'
+            . ' WHERE `id_specific_price_rule` IN (' . implode(',', $ids) . ') AND `id_product` > 0'
+            . ' LIMIT ' . (self::PRICE_CHANGE_MAX_PRODUCTS + 1)
+        );
+        $this->queuePriceRuleProducts(array_column($rows ?: [], 'id_product'));
+    }
+
+    /**
+     * Queue products a catalog price rule changed, up to
+     * PRICE_CHANGE_MAX_PRODUCTS per request. A rule on more than that (one
+     * on the whole catalog) asks for a full sync once, and queues no more.
+     *
+     * @param array $productIds
+     */
+    private function queuePriceRuleProducts(array $productIds)
+    {
+        if ($this->priceRuleOverflow) {
+            return;
+        }
+
+        $new = [];
+        foreach ($productIds as $productId) {
+            $productId = (int) $productId;
+            if ($productId > 0 && !isset($this->pending['product_syncs'][$productId])) {
+                $new[$productId] = true;
+            }
+        }
+        if ($this->priceRuleProducts + count($new) > self::PRICE_CHANGE_MAX_PRODUCTS) {
+            $this->priceRuleOverflow = true;
+            $this->handleFullCatalogResync('catalog_price_rule');
+
+            return;
+        }
+
+        $this->priceRuleProducts += count($new);
+        foreach (array_keys($new) as $productId) {
+            $this->queueProductEvent($productId, 'product.updated');
+        }
+    }
+
+    /**
+     * Re-send the products whose specific price (a promo, a catalog price rule,
+     * a volume discount) started or ended since the last check.
+     *
+     * PrestaShop has no cron, and a dated price changes nothing in the
+     * database when it starts or ends, so no hook fires: without this, the
+     * chat keeps quoting the sale price after the sale ends and the full price
+     * while it runs. Storefront page views drive the check instead, at most
+     * once per PRICE_WINDOW_CHECK_SECONDS; the chat only runs on the
+     * storefront, so a shop with no visitors has no one to quote a stale price
+     * to.
+     *
+     * One request runs it: the claim on RUN_AT is a compare-and-set, so
+     * concurrent page views at the same moment do not each re-send. The
+     * products go out with the end-of-request flush, at most
+     * PRICE_CHANGE_MAX_PRODUCTS of them, oldest change first, and SENT_UNTIL
+     * moves only past what was sent: a send that fails or a request that
+     * dies is retried on the next check, and a longer backlog continues on
+     * the next page view.
+     */
+    private function queueScheduledPriceChanges()
+    {
+        if (!Configuration::get('EMPORIQA_SYNC_PRODUCTS') || !SpecificPrice::isFeatureActive()) {
+            return;
+        }
+
+        $now = time();
+        $sentUntil = (int) Configuration::getGlobalValue(self::PRICE_WINDOW_SENT_UNTIL);
+        $runAt = (string) Configuration::getGlobalValue(self::PRICE_WINDOW_RUN_AT);
+        if ($sentUntil <= 0 || $runAt === '') {
+            // The first check only starts the clock.
+            Configuration::updateGlobalValue(self::PRICE_WINDOW_SENT_UNTIL, $now);
+            Configuration::updateGlobalValue(self::PRICE_WINDOW_RUN_AT, $now);
+
+            return;
+        }
+        if ($now - (int) $runAt < self::PRICE_WINDOW_CHECK_SECONDS || !$this->claimGlobalValue(self::PRICE_WINDOW_RUN_AT, $runAt, $now)) {
+            return;
+        }
+
+        // `from`/`to` hold the shop's local time, the same clock date() uses
+        // under PrestaShop's configured timezone.
+        $since = pSQL(date('Y-m-d H:i:s', $sentUntil));
+        $until = pSQL(date('Y-m-d H:i:s', $now));
+        $started = '(`from` > \'' . $since . '\' AND `from` <= \'' . $until . '\')';
+        $rows = Db::getInstance()->executeS(
+            'SELECT `id_product`, MIN(IF(' . $started . ', `from`, `to`)) AS `changed_at`'
+            . ' FROM `' . _DB_PREFIX_ . 'specific_price`'
+            . ' WHERE ' . $started . ' OR (`to` >= \'' . $since . '\' AND `to` < \'' . $until . '\')'
+            . ' GROUP BY `id_product` ORDER BY `changed_at`, `id_product`'
+            . ' LIMIT ' . (self::PRICE_CHANGE_MAX_PRODUCTS + 1)
+        );
+        $rows = $rows ?: [];
+
+        $more = false;
+        $sendUntil = $now;
+        if (count($rows) > self::PRICE_CHANGE_MAX_PRODUCTS) {
+            $last = (string) $rows[self::PRICE_CHANGE_MAX_PRODUCTS - 1]['changed_at'];
+            if ($last === (string) $rows[self::PRICE_CHANGE_MAX_PRODUCTS]['changed_at']) {
+                // More products than one request sends changed at the very same
+                // second (a sale on a large part of the catalog): no cursor can
+                // split them.
+                $this->handleFullCatalogResync('scheduled_price_window');
+                $rows = [];
+            } else {
+                $rows = array_slice($rows, 0, self::PRICE_CHANGE_MAX_PRODUCTS);
+                $sendUntil = (int) strtotime($last);
+                $more = true;
+            }
+        }
+
+        $queued = false;
+        foreach ($rows as $row) {
+            $productId = (int) $row['id_product'];
+            if ($productId > 0) {
+                $this->queueProductEvent($productId, 'product.updated');
+                $queued = $queued || isset($this->pending['product_syncs'][$productId]);
+            } else {
+                $this->handleFullCatalogResync('scheduled_price_window');
+            }
+        }
+
+        if ($queued) {
+            $this->pending['price_window'] = ['sent_until' => $sendUntil, 'more' => $more];
+        } else {
+            Configuration::updateGlobalValue(self::PRICE_WINDOW_SENT_UNTIL, $sendUntil);
+        }
+    }
+
+    /**
+     * Once the dated-price products were sent, move SENT_UNTIL past them;
+     * with more waiting, free the claim so the next page view continues.
+     *
+     * @param array $window pending['price_window']
+     * @param bool $sent whether every product batch was accepted
+     */
+    private function savePriceWindow(array $window, $sent)
+    {
+        if (empty($window) || !$sent) {
+            return;
+        }
+        Configuration::updateGlobalValue(self::PRICE_WINDOW_SENT_UNTIL, (int) $window['sent_until']);
+        if (!empty($window['more'])) {
+            Configuration::updateGlobalValue(self::PRICE_WINDOW_RUN_AT, 0);
+        }
+    }
+
+    /**
+     * Compare-and-set on a global configuration value, bypassing the
+     * per-request cache: true only for the one request whose UPDATE changed
+     * the stored value.
+     *
+     * @param string $key
+     * @param string $expected the value this request read
+     * @param int $value
+     *
+     * @return bool
+     */
+    private function claimGlobalValue($key, $expected, $value)
+    {
+        $db = Db::getInstance();
+        $updated = $db->execute(
+            'UPDATE `' . _DB_PREFIX_ . 'configuration` SET `value` = \'' . (int) $value . '\', `date_upd` = \'' . pSQL(date('Y-m-d H:i:s')) . '\''
+            . ' WHERE `name` = \'' . pSQL($key) . '\' AND `id_shop` IS NULL AND `id_shop_group` IS NULL'
+            . ' AND `value` = \'' . pSQL($expected) . '\''
+        );
+
+        return $updated && (int) $db->Affected_Rows() === 1;
     }
 
     // -------------------------------------------------------------------------
@@ -1634,6 +1926,11 @@ class Emporiqa extends Module
         }
 
         $this->finishResponseEarly();
+        // Sends run after the response; the request's time limit was meant
+        // for the page, not for them.
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
 
         $productSyncs = $pending['product_syncs'];
         $productDeletes = $pending['product_deletes'];
@@ -1666,7 +1963,7 @@ class Emporiqa extends Module
             }
             $productGroups[] = $this->productStockEvents((int) $productId);
         }
-        $this->dispatchProductGroups($productGroups);
+        $this->savePriceWindow($pending['price_window'], $this->dispatchProductGroups($productGroups));
 
         foreach ($pending['page_syncs'] as $cmsId => $eventType) {
             if (isset($pageDeletes[$cmsId])) {
@@ -1850,13 +2147,16 @@ class Emporiqa extends Module
      * variations than the batch size goes alone.
      *
      * @param array<int, array<int, array{type: string, data: array}>> $groups one list of events per product
+     *
+     * @return bool whether every request was accepted
      */
     private function dispatchProductGroups(array $groups)
     {
+        $sent = true;
         $batch = [];
         foreach ($groups as $events) {
             if (!empty($batch) && count($batch) + count($events) > EmporiqaWebhookClient::FLUSH_BATCH_SIZE) {
-                $this->dispatchProductBatch($batch);
+                $sent = $this->dispatchProductBatch($batch) && $sent;
                 $batch = [];
             }
             foreach ($events as $event) {
@@ -1864,16 +2164,20 @@ class Emporiqa extends Module
             }
         }
         if (!empty($batch)) {
-            $this->dispatchProductBatch($batch);
+            $sent = $this->dispatchProductBatch($batch) && $sent;
         }
+
+        return $sent;
     }
 
     private function dispatchProductBatch(array $events)
     {
         try {
-            $this->getWebhookClient()->dispatchEvents($events);
+            return $this->getWebhookClient()->dispatchEvents($events);
         } catch (Throwable $e) {
             PrestaShopLogger::addLog('[Emporiqa] Deferred sync failed: ' . $e->getMessage(), 2, null, 'Emporiqa');
+
+            return false;
         }
     }
 
@@ -1993,7 +2297,10 @@ class Emporiqa extends Module
     private function getConfigureUrl()
     {
         if (isset($_SERVER['REQUEST_URI'])) {
-            $scheme = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http';
+            // PrestaShop's own check, which also reads X-Forwarded-Proto: behind
+            // a proxy that ends TLS, HTTPS is unset and an http:// URL here is
+            // blocked as mixed content, so no Sync tab button would work.
+            $scheme = Tools::usingSecureMode() ? 'https' : 'http';
             $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
 
             return $scheme . '://' . $host . $_SERVER['REQUEST_URI'];

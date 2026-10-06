@@ -114,7 +114,8 @@ class EmporiqaChannelResolver
     }
 
     /**
-     * Shop ID → channel key for every active shop, enabled or not.
+     * Shop ID → channel key for every active shop with a storefront URL,
+     * enabled or not.
      *
      * @return array<int, string>
      */
@@ -125,15 +126,27 @@ class EmporiqaChannelResolver
         }
 
         // Shop::getShops is cached by PrestaShop for the request and carries
-        // the names, so no Shop object is loaded per shop.
+        // the names and main URLs, so no Shop object is loaded per shop. It
+        // already leaves out deleted shops (and inactive ones with true).
         $shops = Shop::getShops(true);
         ksort($shops);
 
         $mapping = [];
         $names = [];
         foreach ($shops as $id => $row) {
+            // A shop with no main URL has no storefront: nobody can chat there,
+            // and every link PrestaShop builds for it lacks a host.
+            if (empty($row['domain']) && empty($row['domain_ssl'])) {
+                continue;
+            }
             $name = isset($row['name']) ? (string) $row['name'] : '';
-            $mapping[(int) $id] = self::slugify($name !== '' ? $name : (string) $id);
+            $key = self::slugify($name !== '' ? $name : (string) $id);
+            // Two shops whose names slugify alike would share one channel and
+            // overwrite each other's data; the later one (higher id) gets its id.
+            if (in_array($key, $mapping, true)) {
+                $key .= '-' . (int) $id;
+            }
+            $mapping[(int) $id] = $key;
             $names[(int) $id] = $name;
         }
 
@@ -263,12 +276,7 @@ class EmporiqaChannelResolver
             return [];
         }
 
-        $channels = [];
-        foreach ($shopIds as $shopId) {
-            $channels[] = $this->resolveChannelKey($shopId);
-        }
-
-        return array_unique($channels);
+        return $this->channelsOfShops($shopIds);
     }
 
     /**
@@ -285,12 +293,29 @@ class EmporiqaChannelResolver
             return [];
         }
 
+        return $this->channelsOfShops($shopIds);
+    }
+
+    /**
+     * The channel keys of the given shops, limited to the synced ones: a
+     * product or page row in an inactive, URL-less or excluded shop never
+     * names a channel.
+     *
+     * @param array<int> $shopIds
+     *
+     * @return array<string>
+     */
+    private function channelsOfShops(array $shopIds)
+    {
+        $mapping = $this->getMapping();
         $channels = [];
         foreach ($shopIds as $shopId) {
-            $channels[] = $this->resolveChannelKey($shopId);
+            if (isset($mapping[(int) $shopId])) {
+                $channels[] = $mapping[(int) $shopId];
+            }
         }
 
-        return array_unique($channels);
+        return array_values(array_unique($channels));
     }
 
     public static function reset()
@@ -318,7 +343,18 @@ class EmporiqaChannelResolver
             }
         }
 
-        $currencies = Currency::getCurrenciesByIdShop($shopId);
+        // getCurrenciesByIdShop also returns disabled and deleted currencies
+        // (Currency::delete is a soft delete that keeps the currency_shop row),
+        // which no shopper can pay in, and currencies this shop has no
+        // exchange rate for, whose prices PrestaShop converts to 0.
+        $defaultCurrency = (int) Configuration::get('PS_CURRENCY_DEFAULT', null, null, $shopId);
+        $currencies = array_values(array_filter(
+            Currency::getCurrenciesByIdShop($shopId),
+            function ($currency) use ($defaultCurrency) {
+                return !empty($currency['active']) && empty($currency['deleted'])
+                    && ((int) $currency['id_currency'] === $defaultCurrency || (float) $currency['conversion_rate'] > 0);
+            },
+        ));
 
         return [
             'shop_id' => (int) $shopId,

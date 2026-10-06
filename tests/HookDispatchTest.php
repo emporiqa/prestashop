@@ -135,6 +135,9 @@ class RecordingClient extends EmporiqaWebhookClient
     /** @var array<int, array> one entry per request */
     public $requests = [];
 
+    /** @var bool what every send answers */
+    public static $accepts = true;
+
     public function __construct()
     {
     }
@@ -143,7 +146,7 @@ class RecordingClient extends EmporiqaWebhookClient
     {
         $this->requests[] = $events;
 
-        return true;
+        return self::$accepts;
     }
 }
 
@@ -192,6 +195,7 @@ function flushQueued(array $pending)
         'stock' => [],
         'page_syncs' => [],
         'page_deletes' => [],
+        'price_window' => [],
     ]);
     $module->flushPendingProductSyncs();
 
@@ -267,6 +271,20 @@ for ($i = 0; $i < 5; ++$i) {
 }
 check('five failed sends, one config write',
     array_count_values(Configuration::$writes)[EmporiqaWebhookClient::LAST_AUTO_FAIL_KEY] === 1);
+
+echo "Scenario 6: the dated-price check is marked sent only when its products were\n";
+Product::$variations = [];
+foreach ([true, false] as $accepts) {
+    RecordingClient::$accepts = $accepts;
+    Configuration::$values = ['EMPORIQA_PRICE_WINDOW_SENT_UNTIL' => 100];
+    flushQueued([
+        'product_syncs' => [4 => 'product.updated'],
+        'price_window' => ['sent_until' => 500, 'more' => false],
+    ]);
+    check($accepts ? 'accepted: moved' : 'refused: kept for the next check',
+        Configuration::$values['EMPORIQA_PRICE_WINDOW_SENT_UNTIL'] === ($accepts ? 500 : 100));
+}
+RecordingClient::$accepts = true;
 
 if ($failures > 0) {
     echo "\n{$failures} assertion(s) FAILED\n";

@@ -68,7 +68,7 @@
                             <p class="text-muted small">{l s='Reconnect only if Emporiqa or this page asks you to. It replaces your connection secret automatically.' mod='emporiqa'}</p>
                         {else}
                             <h3 class="emporiqa-connect-h3">{l s='Connect to Emporiqa in one click' mod='emporiqa'}</h3>
-                            <p>{l s="We'll sign you in, link this store, and send back a fresh connection secret. No copy-pasting." mod='emporiqa'}</p>
+                            <p>{l s='We will sign you in, link this store, and send back a fresh connection secret. No copy-pasting.' mod='emporiqa'}</p>
                             {if !$emporiqa_https_enabled}
                                 <p class="emporiqa-field-warning">
                                     {l s='One-click connect requires HTTPS. Turn on SSL under Shop Parameters > General, or paste your credentials under Edit credentials manually below.' mod='emporiqa'}
@@ -184,7 +184,7 @@
                                 <i class="icon-copy"></i> {l s='Copy' mod='emporiqa'}
                             </button>
                         </div>
-                        <p class="help-block">{l s='Copy this address into the Order status rule in Emporiqa.' mod='emporiqa'}</p>
+                        <p class="help-block">{l s='Emporiqa fills this in for you when you add the Order status rule. If it ever asks for the address, use this one.' mod='emporiqa'}</p>
                     </div>
                     <table class="table">
                         <tbody>

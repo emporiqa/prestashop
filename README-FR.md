@@ -70,7 +70,7 @@ Le message d'accueil par défaut indique au client qu'il s'adresse à l'assistan
 
 ## Garder votre catalogue à jour
 
-Le module envoie automatiquement à Emporiqa les modifications de produits, de pages et de commandes, au fil de l'eau, via les hooks PrestaShop. Celles qui ne touchent qu'un produit, promotion programmée (SpecificPrice), changement d'image ou de déclinaison, déclenchent d'elles-mêmes un nouvel envoi du produit concerné ; un simple changement de stock ou une mise en rupture envoie une mise à jour compacte, limitée à la disponibilité, sans reconstruire le produit entier.
+Le module envoie automatiquement à Emporiqa les modifications de produits, de pages et de commandes, au fil de l'eau, via les hooks PrestaShop. Celles qui ne touchent qu'un produit, promotion ou autre prix spécifique (SpecificPrice), modification d'une règle de prix catalogue, changement d'image ou de déclinaison, déclenchent d'elles-mêmes un nouvel envoi du produit concerné. Une promotion datée est renvoyée quand elle commence et quand elle se termine : les visites de la boutique le vérifient au plus toutes les 15 minutes, jusqu'à 100 produits par visite, du plus ancien changement au plus récent, la visite suivante reprenant la suite. Une règle de prix catalogue qui couvre plus de 100 produits inscrit plutôt au journal une demande de synchronisation manuelle ; un simple changement de stock ou une mise en rupture envoie une mise à jour compacte, limitée à la disponibilité, sans reconstruire le produit entier.
 
 Certains changements touchent l'ensemble du catalogue (renommage de catégories ou de marques, rafraîchissement des taux de change, modification de taux de TVA ou de groupes de règles de TVA, modification de règles panier, nouvelle langue activée). Relancer depuis ces hooks une synchronisation produit par produit, de façon synchrone, bloquerait la requête admin ; le module se contente donc d'enregistrer un avertissement dans **Paramètres avancés → Journaux** et laisse le rafraîchissement du catalogue à un lancement manuel.
 
@@ -92,9 +92,11 @@ Au-delà des champs présentés dans la [référence du payload webhook](https:/
 - `is_virtual` : booléen ; vrai pour les produits dématérialisés sans expédition.
 - `available_for_order` : booléen ; faux pour les produits en mode catalogue, en affichage seul. L'assistant les décrit toujours, mais ne les ajoute pas au panier.
 - `max_order_quantities` : dictionnaire par canal (`{canal: int|null}`) de la quantité maximale autorisée par commande. PrestaShop n'ayant pas de maximum natif par commande, ce champ vaut pour l'instant toujours `null` (aucune limite). Il est là pour la parité de contrat entre plateformes, afin qu'une source personnalisée puisse le renseigner plus tard.
-- `tier_prices` : liste par devise des remises sur quantité et des tarifs dégressifs (`[{min_quantity, price}]`), présente sur une entrée de prix uniquement si le produit ou la déclinaison a des remises sur quantité configurées dans PrestaShop. Chaque palier reprend le prix unitaire affiché au visiteur non connecté à ce seuil. Les paliers réservés à un groupe, à un client ou à un pays (B2B) sont volontairement exclus.
+- `tier_prices` : liste par devise des remises sur quantité et des tarifs dégressifs (`[{min_quantity, price}]`), présente sur une entrée de prix uniquement si le produit ou la déclinaison a des remises sur quantité configurées dans PrestaShop. Chaque palier reprend le prix unitaire du visiteur non connecté à ce seuil, avec la précision que le panier multiplie (6 décimales, ou au centime quand la boutique arrondit chaque article), pour que le prix d'une quantité corresponde au total du panier. Les paliers réservés à un groupe, à un client ou à un pays (B2B) sont volontairement exclus.
 
 Ces champs font partie du payload complet produit et déclinaison, pas de l'événement léger `product.availability`, qui ne porte que le numéro d'identification, le SKU, les statuts de disponibilité par canal et les quantités en stock.
+
+Une déclinaison ne porte pas `descriptions`, `categories`, `brands`, `variation_attributes` ni `is_parent` : Emporiqa reprend les trois premiers de son produit et les ignore sur une déclinaison.
 
 ## Structure du module
 
@@ -104,13 +106,14 @@ emporiqa/
 ├── config.xml                   # Métadonnées du module
 ├── logo.png                     # Icône du module
 ├── classes/
-│   ├── EmporiqaActionEndpoint.php    # Endpoint des règles prêtes à l'emploi (order_status, verify)
+│   ├── EmporiqaActionEndpoint.php    # Endpoint des règles prêtes à l'emploi (order_status, customer_prices, verify)
 │   ├── EmporiqaCartApiEndpoint.php   # Corps de l'API panier (POST uniquement, jamais en cache)
 │   ├── EmporiqaConnectHandshake.php  # Corps de la connexion en un clic
 │   ├── EmporiqaJsonResponse.php      # L'unique helper de réponse JSON (lisible par PHP 7)
 │   ├── EmporiqaCartHandler.php       # Opérations de panier dans le chat
 │   ├── EmporiqaChannelResolver.php   # Mappage multi-boutique → canal
 │   ├── EmporiqaConnectNonce.php      # Stockage du vérificateur PKCE de la connexion en un clic
+│   ├── EmporiqaCustomerPrices.php    # Ce que paie un client connecté (customer_prices)
 │   ├── EmporiqaLanguageHelper.php    # Utilitaires de mappage des langues
 │   ├── EmporiqaOrderFormatter.php    # Formatage du payload commande
 │   ├── EmporiqaOrderStatus.php       # Recherche du statut de commande, dédoublonnage et limite de débit
@@ -151,7 +154,7 @@ emporiqa/
 
 | Hook | Fonction |
 |------|----------|
-| `displayHeader` | Intègre le widget de chat sur la boutique |
+| `displayHeader` | Intègre le widget de chat sur la boutique ; au plus toutes les 15 minutes, renvoie les produits dont une promotion datée a commencé ou s'est terminée |
 | `actionProductSave` | Synchronise le produit à la création/modification |
 | `actionProductDelete` | Envoie l'événement de suppression pour le produit et ses variations |
 | `actionObjectCombination{Add,Update,Delete}After` | Synchronise le produit parent quand les déclinaisons changent |
@@ -160,7 +163,9 @@ emporiqa/
 | `actionOrderStatusPostUpdate` | Envoie order.completed pour les captures de paiement tardives |
 | `actionUpdateQuantity` | Émet un événement léger `product.availability` quand le stock change (sans reconstruction complète du produit) |
 | `actionProductOutOfStock` | Émet un événement `product.availability` lors des transitions de seuil de stock |
-| `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-synchronise le produit concerné lors des promos programmées, réductions par groupe et remises sur quantité (tarifs dégressifs) |
+| `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-synchronise le produit concerné quand un prix spécifique (promo, réduction par groupe, remise sur quantité) est créé, modifié ou supprimé |
+| `actionObjectSpecificPriceRule{Update,Delete}Before` | Re-synchronise les produits couverts par une règle de prix catalogue, pour qu'une règle supprimée ou restreinte n'affiche plus sa remise |
+| `actionAdminSpecificPriceRuleController{Delete,Bulkdelete}Before` | Re-synchronise ces produits quand une règle est supprimée depuis la page Règles de prix catalogue, avant que ses lignes ne disparaissent |
 | `actionObjectImage{Add,Update,Delete}After` | Re-synchronise le produit concerné quand ses images changent |
 | `actionObjectCategory{Update,Delete}After` | Enregistre un avertissement pour que le marchand lance une synchronisation complète (impact à l'échelle du catalogue) |
 | `actionObjectManufacturer{Update,Delete}After` | Enregistre un avertissement pour que le marchand lance une synchronisation complète (impact à l'échelle du catalogue) |

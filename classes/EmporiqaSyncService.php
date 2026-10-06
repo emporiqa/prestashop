@@ -151,9 +151,11 @@ class EmporiqaSyncService
 
         // Presume failure before running the batch so a fatal error or
         // timeout mid-batch still poisons the session; the success path
-        // reverses the mark below.
+        // clears the mark below. Marks are per page (after_id), so the Sync
+        // tab's retry of a failed page clears that page's mark and nothing
+        // else.
         if (!$dryRun) {
-            $this->bumpSessionStats($sessionId, 1, 0);
+            $this->markBatch($sessionId, $afterId, true, 0);
         }
 
         $result = $entity === 'products'
@@ -161,7 +163,7 @@ class EmporiqaSyncService
             : $this->processPageBatch($sessionId, (int) $afterId, $dryRun);
 
         if (!$dryRun && !empty($result['success'])) {
-            $this->bumpSessionStats($sessionId, -1, (int) $result['processed']);
+            $this->markBatch($sessionId, $afterId, false, (int) $result['processed']);
         }
 
         return $result;
@@ -264,24 +266,32 @@ class EmporiqaSyncService
     protected function registerSession($sessionId)
     {
         $this->pruneSessionStats();
-        $this->writeSessionStats($sessionId, ['errors' => 0, 'synced' => 0]);
+        $this->writeSessionStats($sessionId, ['errors' => 0, 'synced' => 0, 'failed' => []]);
     }
 
     /**
-     * Adjust a session's error/synced counters. Unknown sessions are ignored.
+     * Mark one page of a session (by its after_id) failed or not, and add
+     * to its synced count. Unknown sessions are ignored.
      *
      * @param string $sessionId
-     * @param int $errorDelta
+     * @param int|string $afterId
+     * @param bool $failed
      * @param int $syncedDelta
      */
-    protected function bumpSessionStats($sessionId, $errorDelta, $syncedDelta)
+    protected function markBatch($sessionId, $afterId, $failed, $syncedDelta)
     {
         $stats = $this->getSessionStats($sessionId);
         if ($stats === null) {
             return;
         }
 
-        $stats['errors'] = max(0, $stats['errors'] + $errorDelta);
+        $page = 'after-' . (int) $afterId;
+        $marks = array_values(array_diff($stats['failed'], [$page]));
+        if ($failed) {
+            $marks[] = $page;
+        }
+        $stats['failed'] = $marks;
+        $stats['errors'] = count($marks);
         $stats['synced'] += $syncedDelta;
         $this->writeSessionStats($sessionId, $stats);
     }
@@ -289,7 +299,7 @@ class EmporiqaSyncService
     /**
      * @param string $sessionId
      *
-     * @return array|null ['errors' => int, 'synced' => int] or null if unknown
+     * @return array|null ['errors' => int, 'synced' => int, 'failed' => string[]] or null if unknown
      */
     protected function getSessionStats($sessionId)
     {
@@ -303,9 +313,21 @@ class EmporiqaSyncService
             return null;
         }
 
+        $errors = isset($stats['errors']) ? (int) $stats['errors'] : 0;
+        if (isset($stats['failed']) && is_array($stats['failed'])) {
+            $failed = array_values(array_map('strval', $stats['failed']));
+        } else {
+            // A session started before failures were kept per page: its
+            // failures cannot be told apart, so no retry clears them.
+            $failed = $errors > 0 ? array_map(function ($i) {
+                return 'legacy-' . $i;
+            }, range(1, $errors)) : [];
+        }
+
         return [
-            'errors' => isset($stats['errors']) ? (int) $stats['errors'] : 0,
+            'errors' => count($failed),
             'synced' => isset($stats['synced']) ? (int) $stats['synced'] : 0,
+            'failed' => $failed,
         ];
     }
 

@@ -3,6 +3,8 @@
  * Locks in the sync-completion guard: sync.complete must NOT be sent for a
  * session that had a failed batch or synced zero items, because completion
  * makes the Emporiqa backend delete every item unseen in the session.
+ * Failures are kept per page (after_id): a successful retry of the failed
+ * page clears its mark, a success on any other page never does.
  *
  * Self-contained (no PHPUnit, no PrestaShop): PS classes are stubbed below,
  * then the real EmporiqaSyncService is loaded and driven through
@@ -358,6 +360,84 @@ check('failed session A refused', empty($completeA['success']));
 $completeB = $service->completeSync('products', $sessionB);
 check('healthy session B completes', !empty($completeB['success']));
 check('only B reached the backend', count($client->completeCalls) === 1 && $client->completeCalls[0][0] === $sessionB);
+
+// ---------------------------------------------------------------------------
+// Scenario 7: a failed page whose retry succeeds -> completion IS sent.
+// The Sync tab retries a failed page once (same after_id); the retry sends
+// every item of the page, so nothing is missing from the session.
+// ---------------------------------------------------------------------------
+
+echo "Scenario 7: failed page, retry of the same page succeeds => sync.complete sent\n";
+list($service, $client) = freshService();
+$sessionId = initProductSession($service);
+
+Db::getInstance()->rows = [['id_product' => 1]];
+$client->sendBatchReturn = false;
+$service->processBatch('products', $sessionId, 0);
+$client->sendBatchReturn = true;
+$retry = $service->processBatch('products', $sessionId, 0);
+check('retry succeeds', !empty($retry['success']));
+$service->processBatch('products', $sessionId, 1);
+
+$complete = $service->completeSync('products', $sessionId);
+check('completeSync succeeds', !empty($complete['success']));
+check('completeSyncSession called once', count($client->completeCalls) === 1);
+
+// ---------------------------------------------------------------------------
+// Scenario 8: a later page's success never clears another page's failure
+// ---------------------------------------------------------------------------
+
+echo "Scenario 8: failed page, a DIFFERENT page succeeds => sync.complete refused\n";
+list($service, $client) = freshService();
+$sessionId = initProductSession($service);
+
+Db::getInstance()->rows = [['id_product' => 1]];
+$client->sendBatchReturn = false;
+$service->processBatch('products', $sessionId, 0);
+$client->sendBatchReturn = true;
+$service->processBatch('products', $sessionId, 5);
+
+$complete = $service->completeSync('products', $sessionId);
+check('completeSync refuses', empty($complete['success']));
+check('counts the one failed page', strpos($complete['error'], '1 batch(es) failed') !== false);
+check('completeSyncSession NOT called', count($client->completeCalls) === 0);
+
+// ---------------------------------------------------------------------------
+// Scenario 9: the retry fails too -> completion is REFUSED
+// ---------------------------------------------------------------------------
+
+echo "Scenario 9: failed page, failed retry => sync.complete refused\n";
+list($service, $client) = freshService();
+$sessionId = initProductSession($service);
+
+Db::getInstance()->rows = [['id_product' => 1]];
+$client->sendBatchReturn = false;
+$service->processBatch('products', $sessionId, 0);
+$service->processBatch('products', $sessionId, 0);
+
+$complete = $service->completeSync('products', $sessionId);
+check('completeSync refuses', empty($complete['success']));
+check('completeSyncSession NOT called', count($client->completeCalls) === 0);
+
+// ---------------------------------------------------------------------------
+// Scenario 10: a session row written before failures were kept per page
+// keeps its failures; no retry can clear them.
+// ---------------------------------------------------------------------------
+
+echo "Scenario 10: legacy stats row with errors => sync.complete refused\n";
+list($service, $client) = freshService();
+$sessionId = initProductSession($service);
+foreach (array_keys(Configuration::$values) as $key) {
+    if (strpos($key, 'EMPORIQA_SSN_') === 0) {
+        Configuration::$values[$key] = json_encode(['errors' => 1, 'synced' => 3]);
+    }
+}
+Db::getInstance()->rows = [['id_product' => 1]];
+$service->processBatch('products', $sessionId, 0);
+
+$complete = $service->completeSync('products', $sessionId);
+check('completeSync refuses', empty($complete['success']));
+check('completeSyncSession NOT called', count($client->completeCalls) === 0);
 
 // ---------------------------------------------------------------------------
 

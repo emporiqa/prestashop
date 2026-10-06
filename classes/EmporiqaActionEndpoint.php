@@ -6,9 +6,10 @@
  * ready-made rules. The base URL is sent at connect
  * (getModuleLink('emporiqa', 'action')); the rule travels as ?key=:
  *
- *   ?key=order_status  read-only order lookup, signed both ways (scheme 2)
- *   ?key=verify        the origin proof during one-click connect, and the
- *                      signed endpoint challenge
+ *   ?key=order_status     read-only order lookup, signed both ways (scheme 2)
+ *   ?key=customer_prices  what a signed-in customer pays, signed the same way
+ *   ?key=verify           the origin proof during one-click connect, and the
+ *                         signed endpoint challenge
  *
  * It lives here, not in the controller, because it needs PHP 8.0 and the
  * controller must still parse on PHP 7 to answer there.
@@ -48,7 +49,7 @@ class EmporiqaActionEndpoint
             $this->respond(405, ['status' => 'error', 'message_code' => 'invalid_field']);
         }
 
-        $body = (string) file_get_contents('php://input');
+        $body = $this->requestBody();
         $payload = json_decode($body, true);
         $key = (string) Tools::getValue('key');
 
@@ -85,7 +86,7 @@ class EmporiqaActionEndpoint
             $this->answerChallenge($payload, $requestId);
         }
 
-        if ($key !== 'order_status' || $payload['rule'] !== 'order_status') {
+        if (!in_array($key, ['order_status', 'customer_prices'], true) || $payload['rule'] !== $key) {
             $this->respond(404, ['status' => 'error', 'message_code' => 'disabled'], $requestId);
         }
 
@@ -97,11 +98,14 @@ class EmporiqaActionEndpoint
             }
 
             // Counted after the dedupe, so Emporiqa's retry of one call is free.
-            $limited = EmporiqaOrderStatus::rateLimitHit(
-                EmporiqaOrderStatus::field($payload, 'order_number'),
-                EmporiqaOrderStatus::field($payload, 'email'),
-                (int) $this->context->shop->id,
-            );
+            $shopId = (int) $this->context->shop->id;
+            $limited = $key === 'customer_prices'
+                ? EmporiqaCustomerPrices::rateLimitHit($payload, $shopId)
+                : EmporiqaOrderStatus::rateLimitHit(
+                    EmporiqaOrderStatus::field($payload, 'order_number'),
+                    EmporiqaOrderStatus::field($payload, 'email'),
+                    $shopId,
+                );
             if ($limited !== null) {
                 $this->respond(
                     429,
@@ -111,14 +115,25 @@ class EmporiqaActionEndpoint
                 );
             }
 
-            $encoded = (string) json_encode((new EmporiqaOrderStatus($this->context))->handle($payload), self::JSON_FLAGS);
+            $action = $key === 'customer_prices'
+                ? new EmporiqaCustomerPrices($this->context)
+                : new EmporiqaOrderStatus($this->context);
+            $encoded = (string) EmporiqaJsonResponse::encode($action->handle($payload), self::JSON_FLAGS);
             EmporiqaOrderStatus::remember($requestId, 200, $encoded);
         } catch (Throwable $e) {
-            PrestaShopLogger::addLog('[Emporiqa] order_status failed: ' . $e->getMessage(), 3, null, 'Emporiqa');
+            PrestaShopLogger::addLog('[Emporiqa] ' . $key . ' failed: ' . $e->getMessage(), 3, null, 'Emporiqa');
             $this->respond(500, ['status' => 'error', 'message_code' => 'internal'], $requestId);
         }
 
         $this->respond(200, $encoded, $requestId);
+    }
+
+    /**
+     * @return string the raw request body
+     */
+    protected function requestBody()
+    {
+        return (string) file_get_contents('php://input');
     }
 
     /**
@@ -173,7 +188,7 @@ class EmporiqaActionEndpoint
      */
     private function respond($httpCode, $envelope, $requestId = null, array $headers = [])
     {
-        $body = is_array($envelope) ? (string) json_encode($envelope, self::JSON_FLAGS) : (string) $envelope;
+        $body = is_array($envelope) ? (string) EmporiqaJsonResponse::encode($envelope, self::JSON_FLAGS) : (string) $envelope;
         if ($requestId !== null) {
             $key = EmporiqaSignatureHelper::deriveKey($this->secret, EmporiqaSignatureHelper::LABEL_RESPONSE, $this->storeId);
             $headers[] = 'X-Emporiqa-Response-Signature: ' . EmporiqaSignatureHelper::buildHeader($key, $requestId . '.' . $body);

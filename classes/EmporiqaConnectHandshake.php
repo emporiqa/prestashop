@@ -108,7 +108,7 @@ class EmporiqaConnectHandshake
             'shop_name' => Configuration::get('PS_SHOP_NAME'),
         ];
 
-        $base = $this->baseUrl();
+        $base = self::baseUrl();
         $url = $base . '/connect/start?' . http_build_query($params);
 
         // Don't leak the admin URL (with admin token) to emporiqa.com via
@@ -179,7 +179,7 @@ class EmporiqaConnectHandshake
             $payload['store_id'] = $storeIdHint;
         }
 
-        $url = $this->baseUrl() . '/connect/exchange';
+        $url = self::baseUrl() . '/connect/exchange';
         $body = json_encode($payload);
         if ($body === false) {
             $this->fail('encode_failed', $this->t('The connection request could not be built.'));
@@ -241,18 +241,9 @@ class EmporiqaConnectHandshake
     private function persistCredentials(array $result): void
     {
         $webhookUrl = (string) ($result['webhook_url'] ?? '');
-        // Defense-in-depth: only persist a webhook URL on https:// and whose
-        // host matches the configured Emporiqa base. A compromised Emporiqa
-        // response can't redirect every shop's webhooks to attacker-controlled
-        // infrastructure.
-        $parts = parse_url($webhookUrl);
-        $allowedHost = parse_url($this->baseUrl(), PHP_URL_HOST);
-        if (
-            !is_array($parts)
-            || ($parts['scheme'] ?? '') !== 'https'
-            || empty($parts['host'])
-            || strtolower($parts['host']) !== strtolower((string) $allowedHost)
-        ) {
+        // Defense-in-depth: a compromised Emporiqa response can't redirect
+        // every shop's webhooks to attacker-controlled infrastructure.
+        if (!self::isEmporiqaWebhookUrl($webhookUrl)) {
             $this->fail('webhook_url_rejected', $this->t('Emporiqa sent a Webhook URL on an unexpected address, so nothing was saved.'));
         }
 
@@ -291,7 +282,22 @@ class EmporiqaConnectHandshake
         return rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
     }
 
-    private function baseUrl(): string
+    /**
+     * Whether a webhook URL is https on the configured Emporiqa host, the
+     * only place the module sends the catalog and its signed webhooks.
+     */
+    public static function isEmporiqaWebhookUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+        $allowedHost = parse_url(self::baseUrl(), PHP_URL_HOST);
+
+        return is_array($parts)
+            && ($parts['scheme'] ?? '') === 'https'
+            && !empty($parts['host'])
+            && strtolower($parts['host']) === strtolower((string) $allowedHost);
+    }
+
+    private static function baseUrl(): string
     {
         // Configurable for staging; defaults to production.
         $stored = (string) Configuration::get('EMPORIQA_BASE_URL');

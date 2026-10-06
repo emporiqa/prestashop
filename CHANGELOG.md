@@ -7,8 +7,89 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Entries were reconstructed on 2026-09-02 from the module's own release commits.
 Until then this module was the only Emporiqa integration shipping without a
 changelog, which left 1.2.5 through 1.2.8 with no recorded rationale even though
-the work was real. Upgrade scripts exist for 1.2.0, 1.2.3, 1.2.4 and 1.3.0
-only; the other releases need no data migration.
+the work was real. Upgrade scripts exist for 1.2.0, 1.2.3, 1.2.4, 1.3.0 and
+1.3.1 only; the other releases need no data migration.
+
+## [1.3.1] - 2026-10-05
+
+For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.
+
+### Added
+- A `customer_prices` action for Emporiqa (`controllers/front/action.php`,
+  `?key=customer_prices`), on the same signed endpoint, replay window and
+  fail-closed rate limits as `order_status` (30 calls per customer and 600
+  per shop in 10 minutes). Given a signed-in customer and up to 20 product
+  or combination ids, it answers what that customer pays, computed by
+  PrestaShop as that customer: their groups and group reductions, their own
+  specific prices, catalog price rules, volume discounts as the cart charges
+  them, tax for the requested country as their group displays prices, each
+  entry saying whether its prices include tax. Cart rules and vouchers are
+  not part of it. It never touches the customer's cart or session, answers
+  prices only (no name, email or group), leaves out what the customer
+  cannot see or buy, and answers `not_found` for an unknown, disabled or
+  guest customer.
+
+### Changed
+- A combination is sent without the description, categories and brand of
+  its product, which Emporiqa already takes from the product, and without
+  the fields that only describe a product with combinations. Syncing a
+  product with many combinations sends less and does less work.
+
+### Fixed
+- Prices are sent with exactly the digits PrestaShop computed (17.925, not
+  17.925000000000001), also on servers whose PHP settings write more.
+- The chat always quotes the price a visitor sees in your shop. A sync started
+  while a signed-in customer was browsing could send that customer's group
+  discount, personal price or delivery country instead, and a sync from a
+  command-line import could fail.
+- When the Visitor group shows prices tax excluded, the chat quotes them tax
+  excluded too, as your shop displays them.
+- A product with combinations quotes its default combination's price, as
+  its product page does, not the first combination's.
+- On a multistore install, a combination not available in one shop no longer
+  shows a price of 0.00 there; the product shows that shop's own price.
+- Disabled and deleted currencies are no longer sent, nor a currency a shop
+  has no exchange rate for (PrestaShop prices it at 0.00 there).
+- Deleting a catalog price rule, or narrowing what it covers, now refreshes
+  the products it covered, so the chat stops quoting the rule's discount.
+  This works from the Catalog price rules page, in bulk too, and from any
+  other place a rule is deleted. A rule covering more than 100 products
+  asks for a full sync in the log instead.
+- A promotion with start and end dates is refreshed when it starts and when it
+  ends. Visits to your shop check for that at most every 15 minutes, and only
+  one visit does the work; up to 100 products go out per visit, oldest change
+  first, and the next visit continues. A check whose sending fails is
+  retried on the next one.
+- Volume discount prices keep the precision your cart multiplies by, so the
+  price the chat quotes for a quantity matches the cart (50 at 17.925 is
+  896.25, not 896.50, or 896.50 when your shop rounds each item), on
+  PrestaShop 8 and 9 alike.
+- A shop with no web address (for example one left over from a removed shop)
+  is no longer synced, so the chat no longer gets product links without a
+  domain. Two shops whose names read alike no longer share one channel.
+- Adding to the cart from the chat works on pages served by a full-page
+  cache module. The cached page holds the cart token of the visitor it was
+  rendered for, so the cart refused everyone else ("Security check
+  failed"). The refusal now carries the visitor's own token and the chat
+  retries once with it (`code: invalid_token`); a refused request still
+  changes nothing. Cart requests from the chat run one at a time. The
+  upgrade clears the CCC cache, which would otherwise keep serving the
+  previous cart script.
+- The Sync tab works on shops behind a proxy or CDN that ends HTTPS and
+  forwards plain HTTP (Cloudflare, a load balancer). The buttons posted to an
+  `http://` address, which the browser blocks on an `https://` page, so every
+  sync stopped at "The sync could not start." with no reason. The address
+  now follows PrestaShop's own HTTPS detection, which reads
+  `X-Forwarded-Proto`.
+- A sync where one batch failed and its automatic retry succeeded now
+  completes. The failed attempt still counted as a failed batch, so the sync
+  ended with "batch(es) failed" although everything had been sent. A batch
+  that fails twice still stops the sync from completing, so nothing is
+  deleted on Emporiqa.
+
+### Security
+- The Webhook URL in the settings must be an https address on Emporiqa's
+  host, as one-click connect already required.
 
 ## [1.3.0] - 2026-10-05
 

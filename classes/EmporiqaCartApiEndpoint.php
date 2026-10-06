@@ -57,7 +57,7 @@ class EmporiqaCartApiEndpoint
         }
 
         if (!$this->validateCsrfToken()) {
-            $this->respond(['success' => false, 'error' => 'Security check failed. Please refresh the page and try again.']);
+            $this->respond($this->tokenRefusal());
         }
 
         $action = (string) Tools::getValue('action', '');
@@ -121,6 +121,28 @@ class EmporiqaCartApiEndpoint
         $expected = $this->module->getCartApiToken(false);
 
         return $expected !== '' && hash_equals($expected, $token);
+    }
+
+    /**
+     * A refused token, with this visitor's own token for one retry.
+     *
+     * A page served from a full-page cache carries the token of the visitor
+     * it was rendered for, so every other visitor is refused. The refusal
+     * changed nothing, and only a same-origin script can read this answer
+     * (no CORS, SameSite cookie), as with a token rendered into the page.
+     */
+    private function tokenRefusal(): array
+    {
+        $refusal = [
+            'success' => false,
+            'error' => 'Security check failed. Please refresh the page and try again.',
+            'code' => 'invalid_token',
+        ];
+        if ($this->module instanceof Emporiqa) {
+            $refusal['token'] = $this->module->getCartApiToken();
+        }
+
+        return $refusal;
     }
 
     private function respond(array $data, int $httpCode = 200): void

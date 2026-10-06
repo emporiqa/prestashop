@@ -70,7 +70,7 @@ The chat's default greeting tells the shopper it is the store's AI assistant, in
 
 ## Keeping your catalog in sync
 
-The module pushes product, page, and order changes to Emporiqa automatically as they happen via PrestaShop hooks. Per-product changes such as scheduled promos (SpecificPrice), image edits, and combination edits re-emit the affected product on their own; pure stock/out-of-stock changes emit a compact availability-only update instead of rebuilding the whole product.
+The module pushes product, page, and order changes to Emporiqa automatically as they happen via PrestaShop hooks. Per-product changes such as promos and other specific prices (SpecificPrice), catalog price rule edits, image edits, and combination edits re-emit the affected product on their own. A promo with start or end dates is re-sent when it starts and when it ends: storefront visits check for that at most every 15 minutes, up to 100 products per visit, oldest change first, the next visit continuing with the rest. A catalog price rule covering more than 100 products logs a request for a manual sync instead; pure stock/out-of-stock changes emit a compact availability-only update instead of rebuilding the whole product.
 
 Some changes affect the whole catalog (category or brand renames, currency rate refreshes, tax-rate or tax-rules-group edits, cart-rule changes, new languages enabled). Running a synchronous per-product re-sync from those hooks would block the admin request, so the module logs an actionable warning in **Advanced Parameters → Logs** instead and leaves the catalog refresh to a manual run.
 
@@ -92,9 +92,11 @@ Beyond the fields shown in the [webhook payload reference](https://emporiqa.com/
 - `is_virtual`: boolean; true for digital products with no shipping.
 - `available_for_order`: boolean; false for display-only / catalog-mode products. The assistant still describes these but won't add them to the cart.
 - `max_order_quantities`: per-channel dict (`{channel: int|null}`) of the maximum allowed per-order quantity. PrestaShop has no native per-order maximum, so this currently always ships `null` (no limit). The field is included for cross-platform contract parity, so a future custom source can populate it.
-- `tier_prices`: per-currency list of quantity-based volume discounts (`[{min_quantity, price}]`), present on a price entry only when the product or combination has PrestaShop quantity discounts configured. Each tier reflects the public (guest) shopper's unit price at that break. Group-, customer-, or country-restricted (B2B) tiers are intentionally excluded.
+- `tier_prices`: per-currency list of quantity-based volume discounts (`[{min_quantity, price}]`), present on a price entry only when the product or combination has PrestaShop quantity discounts configured. Each tier reflects the public (guest) shopper's unit price at that break, with the precision the cart multiplies by (6 decimals, or the cent when the shop rounds each item), so the price for a quantity matches the cart total. Group-, customer-, or country-restricted (B2B) tiers are intentionally excluded.
 
 These flags are part of the full product and combination payload, not the lightweight `product.availability` event, which carries only the identification number, SKU, per-channel availability statuses, and stock quantities.
+
+A combination carries no `descriptions`, `categories`, `brands`, `variation_attributes` or `is_parent`: Emporiqa takes the first three from its product and ignores them on a combination.
 
 ## Module structure
 
@@ -104,12 +106,13 @@ emporiqa/
 ├── config.xml                   # Module metadata
 ├── logo.png                     # Module icon
 ├── classes/
-│   ├── EmporiqaActionEndpoint.php    # Ready-made rules endpoint (order_status, verify)
+│   ├── EmporiqaActionEndpoint.php    # Ready-made rules endpoint (order_status, customer_prices, verify)
 │   ├── EmporiqaCartApiEndpoint.php   # Cart API body (POST only, never cached)
 │   ├── EmporiqaCartHandler.php       # In-chat cart operations
 │   ├── EmporiqaChannelResolver.php   # Multi-shop → channel mapping
 │   ├── EmporiqaConnectHandshake.php  # One-click connect handshake body
 │   ├── EmporiqaConnectNonce.php      # One-click connect PKCE verifier store
+│   ├── EmporiqaCustomerPrices.php    # What a signed-in customer pays (customer_prices)
 │   ├── EmporiqaJsonResponse.php      # The one JSON response helper (PHP 7 parseable)
 │   ├── EmporiqaLanguageHelper.php    # Language mapping utilities
 │   ├── EmporiqaOrderFormatter.php    # Order payload formatting
@@ -151,7 +154,7 @@ emporiqa/
 
 | Hook | Purpose |
 |------|---------|
-| `displayHeader` | Embeds the chat widget on the storefront |
+| `displayHeader` | Embeds the chat widget on the storefront; at most every 15 minutes, re-sends the products whose dated promo started or ended |
 | `actionProductSave` | Syncs product on create/update |
 | `actionProductDelete` | Sends delete event for product and its variations |
 | `actionObjectCombination{Add,Update,Delete}After` | Syncs parent product when combinations change |
@@ -160,7 +163,9 @@ emporiqa/
 | `actionOrderStatusPostUpdate` | Sends order.completed for late payment captures |
 | `actionUpdateQuantity` | Emits a lightweight `product.availability` event when stock changes (no full product rebuild) |
 | `actionProductOutOfStock` | Emits a `product.availability` event on stock-boundary transitions |
-| `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-syncs the affected product on scheduled promos, per-group reductions, and quantity-based volume discounts (tier pricing) |
+| `actionObjectSpecificPrice{Add,Update,Delete}After` | Re-syncs the affected product when a specific price (promo, per-group reduction, quantity-based volume discount) is created, edited or deleted |
+| `actionObjectSpecificPriceRule{Update,Delete}Before` | Re-syncs the products a catalog price rule covered, so a deleted or narrowed rule stops showing its discount |
+| `actionAdminSpecificPriceRuleController{Delete,Bulkdelete}Before` | Re-syncs those products when a rule is deleted from the Catalog price rules page, before its rows are gone |
 | `actionObjectImage{Add,Update,Delete}After` | Re-syncs the affected product when product images change |
 | `actionObjectCategory{Update,Delete}After` | Logs an actionable warning so the merchant can run a full sync (catalog-wide impact) |
 | `actionObjectManufacturer{Update,Delete}After` | Logs an actionable warning so the merchant can run a full sync (catalog-wide impact) |

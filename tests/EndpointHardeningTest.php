@@ -37,6 +37,11 @@ class EmporiqaJsonResponse
         }
         throw new Sent();
     }
+
+    public static function encode($data, $flags = 0)
+    {
+        return json_encode($data, $flags);
+    }
 }
 
 class Context

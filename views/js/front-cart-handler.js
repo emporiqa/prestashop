@@ -62,7 +62,24 @@
         });
     }
 
+    // One request at a time: the first request of a visitor whose cookie
+    // holds no cart nonce yet mints one, and two minted in parallel would
+    // leave the page holding the token of the cookie that lost.
+    var queue = Promise.resolve();
+
     function emporiqaAjax(action, data) {
+        var run = function () {
+            return send(action, data, false);
+        };
+        var result = queue.then(run, run);
+        queue = result.catch(function () {});
+        return result;
+    }
+
+    // A page from a full-page cache holds the token of whoever it was
+    // rendered for. The refusal changed nothing and carries this visitor's
+    // own token, so it is retried once with it.
+    function send(action, data, retried) {
         var formData = new FormData();
         formData.append('action', action);
         formData.append('token', config.token);
@@ -82,6 +99,10 @@
                 return buildResponse(false, { error: 'Request failed (' + response.status + ')' });
             }
             return response.json().then(function (raw) {
+                if (!retried && raw && raw.code === 'invalid_token' && typeof raw.token === 'string' && raw.token) {
+                    config.token = raw.token;
+                    return send(action, data, true);
+                }
                 var result = normalizeResponse(raw);
                 // Only mutations carry ps_cart (EmporiqaCartApiEndpoint),
                 // and only they need the theme's cart refreshed.

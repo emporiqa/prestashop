@@ -2,7 +2,7 @@
 <module>
     <name>emporiqa</name>
     <displayName><![CDATA[Emporiqa]]></displayName>
-    <version><![CDATA[1.3.0]]></version>
+    <version><![CDATA[1.3.1]]></version>
     <description><![CDATA[Adds the Emporiqa AI salesperson to your shop: it answers shoppers, recommends products from your catalog and guides them to checkout.]]></description>
     <author><![CDATA[Emporiqa]]></author>
     <tab><![CDATA[front_office_features]]></tab>

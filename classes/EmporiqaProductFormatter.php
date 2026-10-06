@@ -28,6 +28,9 @@ class EmporiqaProductFormatter
     /** @var Context */
     private $context;
 
+    /** @var int the tax address of withPriceContext, 0 for the context country */
+    private $taxAddressId = 0;
+
     public function __construct(EmporiqaChannelResolver $channelResolver, Context $context)
     {
         $this->context = $context;
@@ -222,9 +225,14 @@ class EmporiqaProductFormatter
             // Images — use shop domain for URLs (list, [] is valid JSON)
             $allImages[$channelKey] = $this->getProductImages($shopProduct, $ctx['domain']);
 
-            // Prices per channel's currencies (shop-aware for multi-shop)
-            $firstPaId = ($hasCombinations && !empty($groupedCombinations)) ? key($groupedCombinations) : null;
-            $allPrices[$channelKey] = $this->buildPriceEntries($productId, $firstPaId, $ctx['currencies'], $shopId);
+            // Prices per channel's currencies (shop-aware for multi-shop). The
+            // parent quotes the shop's default combination, as its storefront does.
+            $parentPaId = null;
+            if ($hasVariations) {
+                $defaultPaId = (int) $shopProduct->cache_default_attribute;
+                $parentPaId = isset($groupedCombinations[$defaultPaId]) ? $defaultPaId : key($groupedCombinations);
+            }
+            $allPrices[$channelKey] = $this->buildPriceEntries($productId, $parentPaId, $ctx['currencies'], $shopId, true);
 
             // Stock & availability per shop
             if ($hasVariations) {
@@ -344,8 +352,6 @@ class EmporiqaProductFormatter
                     $parentSku,
                     $contexts,
                     $channelKeys,
-                    $allCategories,
-                    $allDescriptions,
                     $combinationsByLang,
                     $parentMinQty,
                     $syncSessionId,
@@ -492,14 +498,11 @@ class EmporiqaProductFormatter
         $parentSku,
         array $contexts,
         array $channelKeys,
-        array $parentCategories,
-        array $parentDescriptions,
         array $combinationsByLang,
         $parentMinQty = 1,
         $syncSessionId = null,
     ) {
         $productId = (int) $product->id;
-        $brand = $this->getProductBrand($product);
         $defaultLangId = (int) Configuration::get('PS_LANG_DEFAULT');
 
         $defaultAttributes = [];
@@ -512,14 +515,13 @@ class EmporiqaProductFormatter
         }
 
         $allNames = [];
-        $allDescriptions = [];
         $allLinks = [];
         $allAttributes = [];
-        $allBrands = [];
         $allPrices = [];
         $allAvailabilities = [];
         $allStocks = [];
         $allImages = [];
+        $combinationImages = Image::getImages($defaultLangId, $productId, $paId);
 
         foreach ($contexts as $channelKey => $ctx) {
             $shopId = $ctx['shop_id'];
@@ -532,7 +534,6 @@ class EmporiqaProductFormatter
             }
 
             $names = [];
-            $descriptions = [];
             $links = [];
             $attributes = [];
 
@@ -563,8 +564,6 @@ class EmporiqaProductFormatter
                 }
                 $names[$iso] = $name ?: '';
 
-                $descriptions[$iso] = isset($parentDescriptions[$channelKey][$iso]) ? $parentDescriptions[$channelKey][$iso] : '';
-
                 $links[$iso] = $shopLink->getProductLink($shopProduct, null, null, null, $langId, $shopId, $paId);
 
                 $attributes[$iso] = !empty($langAttributes) ? $langAttributes : (!empty($defaultAttributes) ? $defaultAttributes : new stdClass());
@@ -572,24 +571,17 @@ class EmporiqaProductFormatter
 
             // Empty PHP arrays serialize as JSON []; the API expects {} (dict).
             $allNames[$channelKey] = !empty($names) ? $names : new stdClass();
-            $allDescriptions[$channelKey] = !empty($descriptions) ? $descriptions : new stdClass();
             $allLinks[$channelKey] = !empty($links) ? $links : new stdClass();
             $allAttributes[$channelKey] = !empty($attributes) ? $attributes : new stdClass();
-            $allBrands[$channelKey] = $brand;
 
-            // Variation images
-            $varImages = $this->getProductImages($shopProduct, $ctx['domain']);
-            $combinationImages = Image::getImages($defaultLangId, $productId, $paId);
             if (!empty($combinationImages)) {
                 $varImages = [];
-                $linkRewrite = is_array($shopProduct->link_rewrite)
-                    ? ($shopProduct->link_rewrite[$defaultLangId] ?? reset($shopProduct->link_rewrite))
-                    : $shopProduct->link_rewrite;
                 $imageTypeName = $this->getImageTypeName('large');
                 foreach ($combinationImages as $img) {
-                    $imageUrl = $ctx['domain'] . '/img/p/' . $this->getImagePath($img['id_image']) . '-' . $imageTypeName . '.jpg';
-                    $varImages[] = $imageUrl;
+                    $varImages[] = $ctx['domain'] . '/img/p/' . $this->getImagePath($img['id_image']) . '-' . $imageTypeName . '.jpg';
                 }
+            } else {
+                $varImages = $this->getProductImages($shopProduct, $ctx['domain']);
             }
             $allImages[$channelKey] = array_values(array_unique($varImages));
 
@@ -636,16 +628,16 @@ class EmporiqaProductFormatter
         $productCondition = !empty($product->condition) ? (string) $product->condition : null;
         $isVirtual = (bool) $product->is_virtual;
 
+        // Emporiqa stores a combination as a lean row: descriptions, categories
+        // and brands come from the parent, and variation_attributes / is_parent
+        // are fixed for a combination, so they are not sent.
         $data = [
             'identification_number' => 'variation-' . $paId,
             'sku' => $reference ?: 'variation-' . $paId,
             'channels' => $channelKeys,
             'names' => $allNames,
-            'descriptions' => $allDescriptions,
             'links' => $allLinks,
             'attributes' => $allAttributes,
-            'categories' => $parentCategories,
-            'brands' => $allBrands,
             'prices' => $allPrices,
             'availability_statuses' => $allAvailabilities,
             'stock_quantities' => $allStocks,
@@ -656,8 +648,6 @@ class EmporiqaProductFormatter
             'condition' => $productCondition,
             'is_virtual' => $isVirtual,
             'parent_sku' => $parentSku,
-            'is_parent' => false,
-            'variation_attributes' => new stdClass(),
         ];
 
         if ($syncSessionId) {
@@ -802,7 +792,69 @@ class EmporiqaProductFormatter
         return $result;
     }
 
-    private function buildPriceEntries($productId, $paId = null, $currencies = null, $shopId = null)
+    private function buildPriceEntries($productId, $paId = null, $currencies = null, $shopId = null, $isParent = false)
+    {
+        // The synced price is what an anonymous visitor in the shop's default
+        // country pays, whoever's request runs the sync: one at the end of a
+        // storefront request with a signed-in customer (their group discount,
+        // their own negotiated price, their delivery country), or a CLI import
+        // with no employee and no cart, where getPriceStatic throws.
+        return $this->withPriceContext(
+            new Customer(),
+            new Country((int) Configuration::get('PS_COUNTRY_DEFAULT')),
+            0,
+            function () use ($productId, $paId, $currencies, $shopId, $isParent) {
+                return $this->priceEntriesInContext($productId, $paId, $currencies, $shopId, $isParent);
+            },
+        );
+    }
+
+    /**
+     * Run $compute with prices as $customer sees them in $country.
+     *
+     * getPriceStatic reads the customer group (Group::getCurrent), the
+     * customer-specific prices and the tax address from the GLOBAL context,
+     * so they are swapped on the module's context, which is the instance
+     * those reads resolve to, and always put back. The empty cart keeps the
+     * customer's real cart (its quantities, its address) out of the prices.
+     *
+     * @param Customer $customer a new Customer() for a visitor
+     * @param Country $country the tax and price-rule country
+     * @param int $idAddress the customer's address in that country, 0 for none
+     * @param callable $compute
+     *
+     * @return mixed what $compute returns
+     */
+    public function withPriceContext(Customer $customer, Country $country, $idAddress, callable $compute)
+    {
+        $context = $this->context;
+        $saved = [$context->customer, $context->cart, $context->country, $this->taxAddressId];
+        $context->customer = $customer;
+        $context->cart = new Cart();
+        $context->country = $country;
+        $this->taxAddressId = (int) $idAddress;
+        try {
+            return $compute();
+        } finally {
+            [$context->customer, $context->cart, $context->country, $this->taxAddressId] = $saved;
+        }
+    }
+
+    /**
+     * Price entries, one per currency, under the context withPriceContext set.
+     * current_price, regular_price and the tiers are what the shop displays
+     * to the context's customer group: tax included unless the group shows
+     * prices tax excluded.
+     *
+     * @param int $productId
+     * @param int|null $paId
+     * @param array|null $currencies
+     * @param int|null $shopId
+     * @param bool $isParent
+     *
+     * @return array
+     */
+    public function priceEntriesInContext($productId, $paId, $currencies, $shopId, $isParent)
     {
         if ($currencies === null) {
             $currencies = Currency::getCurrencies(true);
@@ -815,10 +867,13 @@ class EmporiqaProductFormatter
         // Base context for price computation, shop-scoped for multi-shop so
         // per-shop pricing (ps_product_shop) resolves correctly.
         $baseContext = $this->context;
-        if ($shopId && Shop::isFeatureActive() && (int) $shopId !== (int) $this->context->shop->id) {
-            $baseContext = $this->context->cloneContext();
+        if ($shopId && Shop::isFeatureActive() && (int) $shopId !== (int) $baseContext->shop->id) {
+            $baseContext = $baseContext->cloneContext();
             $baseContext->shop = new Shop((int) $shopId);
         }
+
+        $address = $this->taxAddressId ?: null;
+        $useTax = Group::getPriceDisplayMethod((int) Group::getCurrent()->id) != PS_TAX_EXC;
 
         $entries = [];
 
@@ -841,24 +896,41 @@ class EmporiqaProductFormatter
             $priceContext = $baseContext->cloneContext();
             $priceContext->currency = $currencyObj;
 
+            // null: this combination has no row in this shop (a multi-shop store
+            // that did not associate it here). The parent then shows the shop's
+            // base price, as its storefront does (false = no combination impact);
+            // a combination gets no price in this channel rather than a 0.
+            $candidates = ($isParent && $paId) ? [$paId, false] : [$paId];
+            $pricedPaId = $paId;
+            $rawInc = null;
             $specificPrice = null;
-            $currentInc = (float) Product::getPriceStatic(
-                (int) $productId, true, $paId, 2, null, false, true, 1, false,
-                null, null, null, $specificPrice, true, true, $priceContext,
-            );
+            foreach ($candidates as $pricedPaId) {
+                $rawInc = Product::getPriceStatic(
+                    (int) $productId, true, $pricedPaId, 2, null, false, true, 1, false,
+                    null, null, $address, $specificPrice, true, true, $priceContext,
+                );
+                if ($rawInc !== null) {
+                    break;
+                }
+            }
+            if ($rawInc === null) {
+                continue;
+            }
+            $currentInc = (float) $rawInc;
             $currentExc = (float) Product::getPriceStatic(
-                (int) $productId, false, $paId, 2, null, false, true, 1, false,
-                null, null, null, $specificPrice, true, true, $priceContext,
+                (int) $productId, false, $pricedPaId, 2, null, false, true, 1, false,
+                null, null, $address, $specificPrice, true, true, $priceContext,
             );
-            $regularInc = (float) Product::getPriceStatic(
-                (int) $productId, true, $paId, 2, null, false, false, 1, false,
-                null, null, null, $specificPrice, true, true, $priceContext,
+            $current = $useTax ? $currentInc : $currentExc;
+            $regular = (float) Product::getPriceStatic(
+                (int) $productId, $useTax, $pricedPaId, 2, null, false, false, 1, false,
+                null, null, $address, $specificPrice, true, true, $priceContext,
             );
 
             $entry = [
                 'currency' => $iso,
-                'current_price' => $currentInc,
-                'regular_price' => $regularInc,
+                'current_price' => $current,
+                'regular_price' => $regular,
             ];
 
             if (abs($currentInc - $currentExc) > 0.001) {
@@ -866,7 +938,7 @@ class EmporiqaProductFormatter
                 $entry['price_excl_tax'] = $currentExc;
             }
 
-            $tiers = $this->buildTierPrices($productId, $paId, $shopId, $currId, $priceContext, $currentInc);
+            $tiers = $this->buildTierPrices($productId, $pricedPaId, $shopId, $currId, $priceContext, $current, $useTax);
             if (!empty($tiers)) {
                 $entry['tier_prices'] = $tiers;
             }
@@ -881,33 +953,36 @@ class EmporiqaProductFormatter
      * Map PrestaShop quantity-based specific prices (volume discounts) into the
      * `tier_prices` array the assistant uses to quote "from X; Y each at 10+".
      *
-     * Only tiers a PUBLIC shopper would see are exposed: the unidentified
-     * customer group and the default country, scoped to this shop and currency.
-     * Group- or country-restricted B2B tiers never reach the chat. Each tier's
-     * unit price is computed by PrestaShop itself at the break quantity, using
-     * the same arguments as `current_price` (incl. tax, reductions on, the
-     * currency-scoped context), so base and tier prices are comparable. Returns
-     * [] when the product has no quantity discounts, leaving non-tiered payloads
+     * Only the tiers of the context withPriceContext set are exposed: its
+     * customer (none for a visitor), that customer's group and its country,
+     * scoped to this shop and currency, so a sync never carries a group- or
+     * country-restricted B2B tier. Each tier's unit price is computed by
+     * PrestaShop itself at the break quantity, with the same arguments as
+     * `current_price` (tax as displayed, reductions on, the currency-scoped
+     * context), so base and tier prices are comparable. Returns [] when the
+     * product has no quantity discounts, leaving non-tiered payloads
      * byte-identical.
      *
      * @param int $productId
-     * @param int|null $paId Combination id, or null for the base product
+     * @param int|false|null $paId Combination id, null for the base product,
+     *                             false for the base price without a combination
      * @param int|null $shopId
      * @param int $currId
      * @param Context $priceContext Currency-scoped context matching current_price
-     * @param float $currentInc The qty=1 incl-tax price (to drop no-op tiers)
+     * @param float $current The qty=1 price (to drop no-op tiers)
+     * @param bool $useTax whether current_price includes tax
      *
      * @return array List of ['min_quantity' => int, 'price' => float]
      */
-    private function buildTierPrices($productId, $paId, $shopId, $currId, $priceContext, $currentInc)
+    private function buildTierPrices($productId, $paId, $shopId, $currId, $priceContext, $current, $useTax)
     {
         if (!SpecificPrice::isFeatureActive()) {
             return [];
         }
 
         $idShop = (int) ($shopId ?: $this->context->shop->id);
-        $idCountry = (int) Configuration::get('PS_COUNTRY_DEFAULT');
-        $idGroup = (int) Configuration::get('PS_UNIDENTIFIED_GROUP');
+        $idCountry = (int) $this->context->country->id;
+        $idGroup = (int) Group::getCurrent()->id;
 
         $discounts = SpecificPrice::getQuantityDiscounts(
             (int) $productId,
@@ -915,15 +990,18 @@ class EmporiqaProductFormatter
             (int) $currId,
             $idCountry,
             $idGroup,
-            $paId ? (int) $paId : null,
+            // false = the product's own price, no combination: its tiers are the
+            // product-wide rows only.
+            $paId === false ? 0 : ($paId ? (int) $paId : null),
             false,
-            0,
+            (int) $this->context->customer->id,
         );
 
         if (empty($discounts)) {
             return [];
         }
 
+        $decimals = (int) Configuration::get('PS_ROUND_TYPE') === Order::ROUND_ITEM ? 2 : 6;
         $tiers = [];
         $seen = [];
         foreach ($discounts as $row) {
@@ -934,12 +1012,15 @@ class EmporiqaProductFormatter
             $seen[$fromQty] = true;
 
             // PrestaShop applies the break's tax, reduction type and date window
-            // here, with the same arguments as current_price (only the quantity
-            // differs) so the prices are directly comparable.
+            // here, with the same arguments as current_price except the quantity
+            // and the precision. The unit price has the precision the cart
+            // multiplies by the quantity: 6 decimals when the shop rounds per
+            // line or per total (50 x 17.925 = 896.25), the cent when it rounds
+            // each item (50 x 17.93 = 896.50).
             $specificPrice = null;
             $unit = (float) Product::getPriceStatic(
-                (int) $productId, true, $paId, 2, null, false, true, $fromQty, false,
-                null, null, null, $specificPrice, true, true, $priceContext,
+                (int) $productId, $useTax, $paId, $decimals, null, false, true, $fromQty, false,
+                null, null, $this->taxAddressId ?: null, $specificPrice, true, true, $priceContext,
             );
 
             // Defensive: getQuantityDiscounts already excludes out-of-window
@@ -947,7 +1028,7 @@ class EmporiqaProductFormatter
             // the window, so any break that resolves to the qty=1 price isn't an
             // active discount. Drop those: a tier that doesn't actually change the
             // price is noise to the assistant.
-            if ($unit > 0 && abs($unit - (float) $currentInc) > 0.005) {
+            if ($unit > 0 && abs($unit - (float) $current) > 0.005) {
                 $tiers[] = ['min_quantity' => $fromQty, 'price' => $unit];
             }
         }
