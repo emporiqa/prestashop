@@ -2,8 +2,8 @@
 /**
  * Emporiqa Order Formatter
  *
- * Formats PrestaShop order data for webhook payloads
- * and order tracking API responses.
+ * Formats PrestaShop order data for webhook payloads, order tracking API
+ * responses and the Order status rule's order details.
  *
  * @author    Emporiqa
  * @copyright Emporiqa
@@ -223,6 +223,72 @@ class EmporiqaOrderFormatter
             'tracking_url' => $trackingUrl,
             'items' => $items,
         ];
+    }
+
+    /**
+     * The order's carrier name and its delivery-time text in the order's
+     * language, read the way formatOrderTracking() reads them (see the
+     * comments there for why the language-scoped load can fail in multistore
+     * and why `delay` is read only from the language-scoped object).
+     *
+     * @return array{name: string, delay: string} empty strings when the order has no carrier
+     */
+    public static function carrierLabels(Order $order)
+    {
+        $labels = ['name' => '', 'delay' => ''];
+        if ((int) $order->id_carrier <= 0) {
+            return $labels;
+        }
+        $carrier = new Carrier((int) $order->id_carrier, (int) $order->id_lang);
+        $carrierHasLanguage = Validate::isLoadedObject($carrier);
+        if (!$carrierHasLanguage) {
+            $carrier = new Carrier((int) $order->id_carrier);
+        }
+        if (Validate::isLoadedObject($carrier)) {
+            $labels['name'] = self::carrierName($carrier);
+            if ($carrierHasLanguage) {
+                /** @var string $delay */
+                $delay = $carrier->delay;
+                $labels['delay'] = trim((string) $delay);
+            }
+        }
+
+        return $labels;
+    }
+
+    /**
+     * An order address as the shopper wrote it, empty parts left out.
+     *
+     * @param int $idAddress
+     * @param int $langId language for the country name
+     *
+     * @return array<string, string> name, company, address1, address2, postcode, city, region, country, phone; [] when the address is gone
+     */
+    public static function addressFields($idAddress, $langId)
+    {
+        if ((int) $idAddress <= 0) {
+            return [];
+        }
+        $address = new Address((int) $idAddress);
+        if (!Validate::isLoadedObject($address)) {
+            return [];
+        }
+        $phone = trim((string) $address->phone_mobile) !== '' ? $address->phone_mobile : $address->phone;
+        $fields = [
+            'name' => trim($address->firstname . ' ' . $address->lastname),
+            'company' => (string) $address->company,
+            'address1' => (string) $address->address1,
+            'address2' => (string) $address->address2,
+            'postcode' => (string) $address->postcode,
+            'city' => (string) $address->city,
+            'region' => (int) $address->id_state > 0 ? (string) State::getNameById((int) $address->id_state) : '',
+            'country' => (string) Country::getNameById((int) $langId, (int) $address->id_country),
+            'phone' => (string) $phone,
+        ];
+
+        return array_filter(array_map('trim', $fields), function ($value) {
+            return $value !== '';
+        });
     }
 
     /**

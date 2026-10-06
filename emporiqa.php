@@ -37,7 +37,7 @@ if (PHP_VERSION_ID >= 80000) {
 class Emporiqa extends Module
 {
     /** Sent as X-Emporiqa-Plugin-Version; keep equal to the $this->version literal (the Addons validator wants a literal there) and config.xml. */
-    public const VERSION = '1.3.1';
+    public const VERSION = '1.3.2';
 
     public const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
 
@@ -127,7 +127,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.3.1';
+        $this->version = '1.3.2';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];

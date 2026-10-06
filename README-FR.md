@@ -25,7 +25,7 @@ Le chatbot IA [Emporiqa](https://emporiqa.com) pour PrestaShop 8.1+ et 9 est un 
 
 **Site en HTTP, ou vous préférez coller les identifiants vous-même ?** Dépliez **Modifier les identifiants manuellement** sur la page Configurer. Collez le **Store ID** et le **Connection Secret** affichés dans votre tableau de bord Emporiqa, sous **Settings → Integration** (le tableau de bord est en anglais). Les deux chemins mènent au même résultat.
 
-**Statut de commande dans le chat.** Une fois le module connecté, la page Configurer affiche une section **Règles prêtes à l'emploi**. Cliquez sur **Ouvrir dans Emporiqa** à côté de **Statut de commande**, puis, dans Emporiqa, cliquez sur **Try it** pour tester la règle et sur **Go live** pour l'activer (le tableau de bord est en anglais). Vous n'avez rien à copier : Emporiqa renseigne lui-même l'adresse de votre boutique lors de la connexion en un clic. Si jamais il vous la demande, le champ **Adresse du statut de commande** de la même section affiche celle à utiliser, avec un bouton **Copier**. La règle répond à « Où est ma commande ? » à partir de vos commandes PrestaShop : un client connecté à votre boutique donne seulement la référence de commande, un invité donne aussi l'e-mail de la commande. Si vous vous êtes connecté avec des identifiants saisis à la main et que la section n'apparaît pas encore, cliquez sur **Tester la connexion** dans l'onglet Synchronisation. Les boutiques qui utilisent déjà l'ancienne adresse de suivi de commande continuent de fonctionner comme avant ; une fois la règle Statut de commande activée, la note sous **Avancé** explique comment désactiver l'ancien suivi.
+**Statut de commande dans le chat.** Une fois le module connecté, la page Configurer affiche une section **Règles prêtes à l'emploi**. Cliquez sur **Ouvrir dans Emporiqa** à côté de **Statut de commande**, puis, dans Emporiqa, cliquez sur **Try it** pour tester la règle et sur **Go live** pour l'activer (le tableau de bord est en anglais). Vous n'avez rien à copier : Emporiqa renseigne lui-même l'adresse de votre boutique lors de la connexion en un clic. Si jamais il vous la demande, le champ **Adresse du statut de commande** de la même section affiche celle à utiliser, avec un bouton **Copier**. La règle répond à « Où est ma commande ? » à partir de vos commandes PrestaShop : un client connecté à votre boutique donne seulement la référence de commande, un invité donne aussi l'e-mail de la commande. Une fois la commande prouvée, le chat peut donner au client tout ce que montre sa page de commande : statut, suivi, articles et leurs prix, totaux, paiement, transporteur et délai de livraison, adresses de livraison et de facturation. Si vous vous êtes connecté avec des identifiants saisis à la main et que la section n'apparaît pas encore, cliquez sur **Tester la connexion** dans l'onglet Synchronisation. Les boutiques qui utilisent déjà l'ancienne adresse de suivi de commande continuent de fonctionner comme avant ; une fois la règle Statut de commande activée, la note sous **Avancé** explique comment désactiver l'ancien suivi.
 
 ## Configuration
 
@@ -187,8 +187,19 @@ Les développeurs peuvent se brancher sur le pipeline de sync pour personnaliser
 | `actionEmporiqaShouldSyncProduct` | Annuler conditionnellement une sync produit | `$product`, `$event_type`, `&$should_sync` |
 | `actionEmporiqaShouldSyncPage` | Annuler conditionnellement une sync page | `$page`, `$event_type`, `&$should_sync` |
 | `actionEmporiqaWidgetParams` | Modifier les paramètres d'intégration du widget de chat | `&$params` |
-| `actionEmporiqaOrderStatus` | Modifier la réponse de la règle Statut de commande | `&$data`, `$order` |
+| `actionEmporiqaOrderStatus` | Modifier la réponse de la règle Statut de commande, ou ajouter vos propres champs sous `extra` | `&$data`, `$order` |
 | `actionEmporiqaOrderTracking` | Modifier la réponse du suivi de commande | `&$data`, `$order` |
+
+`actionEmporiqaOrderStatus` s'exécute une fois la réponse remplie par le module (statut, suivi, articles, totaux, paiement, transporteur, adresses) : vous pouvez donc en modifier n'importe quelle partie. Placez vos propres champs sous `extra`, que le chat lit quand le client les demande : clés texte, valeurs texte, nombres, booléens ou listes et objets imbriqués, 30 clés au plus, 3 niveaux et 500 caractères par texte. Les autres clés ajoutées sont ignorées.
+
+```php
+public function hookActionEmporiqaOrderStatus(array $params)
+{
+    $order = $params['order'];
+    $params['data']['extra']['gift_message'] = 'Joyeux anniversaire';
+    $params['data']['extra']['warehouse'] = 'Lyon';
+}
+```
 
 ## Tarifs
 

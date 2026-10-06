@@ -10,6 +10,30 @@ changelog, which left 1.2.5 through 1.2.8 with no recorded rationale even though
 the work was real. Upgrade scripts exist for 1.2.0, 1.2.3, 1.2.4, 1.3.0 and
 1.3.1 only; the other releases need no data migration.
 
+## [1.3.2] - 2026-10-06
+
+For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.
+
+### Added
+- The Order status answer carries the whole order, as the shopper's order
+  page shows it, once the order is proven (reference and email, or the
+  signed-in customer's own order): the order reference, the customer's
+  name, the currency, up to 50 items (name as ordered, reference,
+  quantity, unit and line price, combination), the totals (products,
+  shipping, gift wrapping as fees, tax, discounts, total paid), the payment method and whether it
+  is paid, the carrier and its delivery time, and the delivery and invoice
+  addresses. Amounts are in the order's currency, tax included unless the
+  customer's group is shown prices tax excluded; the total is always what
+  the customer pays. A split checkout counts as one order. No ids and no
+  email are sent. No upgrade script: nothing to migrate.
+- The `actionEmporiqaOrderStatus` hook runs after all of this is filled, so
+  a module can change any of it, and `extra` is the place for fields of
+  your own (README has an example).
+
+### Unchanged
+- The endpoint, its signing, the request_id replay, the rate limits and the
+  proof an order needs. The old order tracking answers exactly as before.
+
 ## [1.3.1] - 2026-10-05
 
 For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.

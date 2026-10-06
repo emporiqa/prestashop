@@ -25,7 +25,7 @@ The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8.1+ and 9 is an 
 
 **On HTTP, or prefer to paste credentials yourself?** Expand **Edit credentials manually** on the Configure page. Paste a **Store ID** and **Connection Secret** from your Emporiqa dashboard under **Settings → Integration**. Both flows reach the same place.
 
-**Order status in the chat.** Once connected, the Configure page shows a **Ready-made rules** section. Click **Open in Emporiqa** next to **Order status**, then in Emporiqa click **Try it** to test the rule and **Go live** to switch it on. You do not need to copy anything: Emporiqa fills in your shop's address by itself when you connect in one click. If it ever asks for the address, the **Order status address** field in the same section shows the one to use, with a **Copy** button. The rule answers "Where is my order?" from your PrestaShop orders: a shopper signed in to your shop only gives the order reference, and a guest also gives the order's email. If you connected with manual credentials and the section does not show yet, click **Test Connection** on the Sync tab. Shops that already set up the older order tracking address keep it working as before; once Order status is on, the note under **Advanced** tells you how to switch the old one off.
+**Order status in the chat.** Once connected, the Configure page shows a **Ready-made rules** section. Click **Open in Emporiqa** next to **Order status**, then in Emporiqa click **Try it** to test the rule and **Go live** to switch it on. You do not need to copy anything: Emporiqa fills in your shop's address by itself when you connect in one click. If it ever asks for the address, the **Order status address** field in the same section shows the one to use, with a **Copy** button. The rule answers "Where is my order?" from your PrestaShop orders: a shopper signed in to your shop only gives the order reference, and a guest also gives the order's email. Once the order is proven, the chat can tell the shopper everything their order page shows: status, tracking, the items with their prices, the totals, payment, carrier and delivery time, and the delivery and invoice addresses. If you connected with manual credentials and the section does not show yet, click **Test Connection** on the Sync tab. Shops that already set up the older order tracking address keep it working as before; once Order status is on, the note under **Advanced** tells you how to switch the old one off.
 
 ## Configuration
 
@@ -187,8 +187,19 @@ Developers can hook into the sync pipeline to customize payloads or cancel syncs
 | `actionEmporiqaShouldSyncProduct` | Conditionally cancel a product sync | `$product`, `$event_type`, `&$should_sync` |
 | `actionEmporiqaShouldSyncPage` | Conditionally cancel a page sync | `$page`, `$event_type`, `&$should_sync` |
 | `actionEmporiqaWidgetParams` | Modify chat widget embed parameters | `&$params` |
-| `actionEmporiqaOrderStatus` | Modify the Order status ready-made rule's answer | `&$data`, `$order` |
+| `actionEmporiqaOrderStatus` | Modify the Order status ready-made rule's answer, or add your own fields under `extra` | `&$data`, `$order` |
 | `actionEmporiqaOrderTracking` | Modify the order tracking response | `&$data`, `$order` |
+
+`actionEmporiqaOrderStatus` runs after the module has filled the answer (status, tracking, items, totals, payment, carrier, addresses), so you can change any of it. Put fields of your own under `extra`, which the chat reads when the shopper asks for them: string keys, values that are strings, numbers, booleans or nested lists and objects, at most 30 keys, 3 levels deep and 500 characters a string. Other keys you add are ignored.
+
+```php
+public function hookActionEmporiqaOrderStatus(array $params)
+{
+    $order = $params['order'];
+    $params['data']['extra']['gift_message'] = 'Happy birthday';
+    $params['data']['extra']['warehouse'] = 'Lyon';
+}
+```
 
 ## Pricing
 

@@ -35,6 +35,9 @@ class EmporiqaOrderStatus
 
     public const RATE_PER_SHOP = 300;
 
+    /** Emporiqa reads at most 50 order lines. */
+    public const MAX_ITEMS = 50;
+
     /** @var Context */
     private $context;
 
@@ -200,6 +203,14 @@ class EmporiqaOrderStatus
 
         $data = $this->buildData($order, $orders);
 
+        // Runs after every key is filled, so a module can change any of them.
+        // Fields of its own go under `extra` (string keys; string, number,
+        // bool or nested values; Emporiqa keeps 30 keys, 3 levels, 500
+        // characters a string); other unknown keys are dropped. Example:
+        //   public function hookActionEmporiqaOrderStatus(array $params)
+        //   {
+        //       $params['data']['extra']['gift_message'] = 'Happy birthday';
+        //   }
         Hook::exec('actionEmporiqaOrderStatus', [
             'data' => &$data,
             'order' => $order,
@@ -266,7 +277,8 @@ class EmporiqaOrderStatus
     }
 
     /**
-     * `data` per the catalog schema: status_code, status_label, placed_at, tracking.
+     * `data` per the catalog schema: status_code, status_label, placed_at,
+     * tracking, then the order's details (orderDetails).
      *
      * @param Order $order the order whose status is reported
      * @param Order[] $orders every order sharing its reference, for tracking
@@ -297,7 +309,193 @@ class EmporiqaOrderStatus
             }
         }
 
-        return $data;
+        return $data + $this->orderDetails($order, $orders, $state);
+    }
+
+    /**
+     * What the shopper's order page shows: number, name, items, totals,
+     * payment, carrier and addresses. A split checkout is one purchase to the
+     * shopper, so items and totals cover every order sharing the reference.
+     * Amounts are in the order's currency, tax included unless the customer's
+     * group is shown prices tax excluded; `total` is always what is paid, so
+     * subtotal - discount + shipping + fees is the total (plus tax when tax
+     * is excluded). Gift wrapping is the `fees`.
+     * Empty values are left out. No ids and no email.
+     *
+     * @param Order $order the newest order with the reference
+     * @param Order[] $orders every order sharing its reference
+     * @param OrderState $state the current state of $order
+     *
+     * @return array<string, mixed>
+     */
+    private function orderDetails(Order $order, array $orders, OrderState $state)
+    {
+        $langId = (int) $order->id_lang;
+        $currency = new Currency((int) $order->id_currency);
+        $precision = Validate::isLoadedObject($currency) ? (int) $currency->precision : 2;
+        $taxIncluded = (int) $order->getTaxCalculationMethod() !== (int) PS_TAX_EXC;
+        $amount = function ($value) use ($precision) {
+            return round((float) $value, $precision);
+        };
+
+        $details = ['order_number' => (string) $order->reference];
+
+        $customer = new Customer((int) $order->id_customer);
+        if (Validate::isLoadedObject($customer)) {
+            $details['customer_name'] = trim($customer->firstname . ' ' . $customer->lastname);
+        }
+        if (Validate::isLoadedObject($currency)) {
+            $details['currency'] = (string) $currency->iso_code;
+        }
+
+        $items = [];
+        $totals = ['subtotal' => 0.0, 'shipping' => 0.0, 'fees' => 0.0, 'tax' => 0.0, 'discount' => 0.0, 'total' => 0.0];
+        $carriers = [];
+        foreach (array_reverse($orders) as $each) {
+            foreach ((array) $each->getProductsDetail() as $line) {
+                if (count($items) < self::MAX_ITEMS) {
+                    $items[] = $this->item($line, $langId, $taxIncluded, $amount);
+                }
+            }
+            $totals['subtotal'] += (float) ($taxIncluded ? $each->total_products_wt : $each->total_products);
+            $totals['shipping'] += (float) ($taxIncluded ? $each->total_shipping_tax_incl : $each->total_shipping_tax_excl);
+            $totals['discount'] += (float) ($taxIncluded ? $each->total_discounts_tax_incl : $each->total_discounts_tax_excl);
+            // Gift wrapping is PrestaShop's only order fee.
+            $totals['fees'] += (float) ($taxIncluded ? $each->total_wrapping_tax_incl : $each->total_wrapping_tax_excl);
+            $totals['tax'] += (float) $each->total_paid_tax_incl - (float) $each->total_paid_tax_excl;
+            $totals['total'] += (float) $each->total_paid_tax_incl;
+            $name = EmporiqaOrderFormatter::carrierLabels($each)['name'];
+            if ($name !== '') {
+                $carriers[$name] = true;
+            }
+        }
+        foreach (['discount', 'fees'] as $optional) {
+            if ($totals[$optional] <= 0) {
+                unset($totals[$optional]);
+            }
+        }
+        if ($items) {
+            $details['items'] = $items;
+        }
+        $details['totals'] = array_map($amount, $totals);
+
+        if (trim((string) $order->payment) !== '') {
+            $details['payment_method'] = trim((string) $order->payment);
+        }
+        $paymentStatus = $this->paymentStatus($order, $state);
+        if ($paymentStatus !== '') {
+            $details['payment_status'] = $paymentStatus;
+        }
+        if ($carriers) {
+            $details['shipping_method'] = implode(', ', array_keys($carriers));
+        }
+        $delay = EmporiqaOrderFormatter::carrierLabels($order)['delay'];
+        if ($delay !== '') {
+            $details['delivery_time'] = $delay;
+        }
+
+        foreach (['shipping_address' => $order->id_address_delivery, 'billing_address' => $order->id_address_invoice] as $key => $idAddress) {
+            $address = EmporiqaOrderFormatter::addressFields((int) $idAddress, $langId);
+            if ($address) {
+                $details[$key] = $address;
+            }
+        }
+
+        return $details;
+    }
+
+    /**
+     * One order line: the name as ordered (with its combination, as the
+     * invoice shows it), the combination alone as `variant`.
+     *
+     * @param array $line an order_detail row
+     * @param int $langId
+     * @param bool $taxIncluded
+     * @param callable $amount rounds to the currency's precision
+     *
+     * @return array<string, mixed>
+     */
+    private function item(array $line, $langId, $taxIncluded, callable $amount)
+    {
+        $item = [
+            'name' => trim((string) ($line['product_name'] ?? '')),
+            'sku' => trim((string) ($line['product_reference'] ?? '')),
+            'quantity' => (int) ($line['product_quantity'] ?? 0),
+            'unit_price' => $amount($taxIncluded ? ($line['unit_price_tax_incl'] ?? 0) : ($line['unit_price_tax_excl'] ?? 0)),
+            'total_price' => $amount($taxIncluded ? ($line['total_price_tax_incl'] ?? 0) : ($line['total_price_tax_excl'] ?? 0)),
+        ];
+        if ($item['sku'] === '') {
+            unset($item['sku']);
+        }
+        $variant = $this->variant($line, $langId);
+        if ($variant !== '') {
+            $item['variant'] = $variant;
+        }
+
+        return $item;
+    }
+
+    /**
+     * The combination label of an order line. PrestaShop writes it into the
+     * line's name after the product name ("T-shirt - Color : White, Size : S",
+     * or "T-shirt (Size: S - Color: White)" depending on the version), so it is
+     * that remainder; when the product was renamed since, the combination's
+     * current attributes in the order's language.
+     *
+     * @param array $line an order_detail row
+     * @param int $langId
+     *
+     * @return string '' for a product without combinations
+     */
+    private function variant(array $line, $langId)
+    {
+        $idCombination = (int) ($line['product_attribute_id'] ?? 0);
+        if ($idCombination <= 0) {
+            return '';
+        }
+        $name = trim((string) ($line['product_name'] ?? ''));
+        $base = trim((string) Product::getProductName((int) ($line['product_id'] ?? 0), null, (int) $langId));
+        if ($base !== '' && strpos($name, $base) === 0) {
+            $rest = trim(substr($name, strlen($base)), " -\t");
+            if (preg_match('/^\((.*)\)$/s', $rest, $inner)) {
+                $rest = trim($inner[1]);
+            }
+            if ($rest !== '') {
+                return $rest;
+            }
+        }
+
+        $rows = Db::getInstance()->executeS(
+            'SELECT agl.`public_name` AS `group_name`, al.`name` AS `value` '
+            . 'FROM `' . _DB_PREFIX_ . 'product_attribute_combination` pac '
+            . 'JOIN `' . _DB_PREFIX_ . 'attribute` a ON a.`id_attribute` = pac.`id_attribute` '
+            . 'JOIN `' . _DB_PREFIX_ . 'attribute_lang` al ON al.`id_attribute` = a.`id_attribute` AND al.`id_lang` = ' . (int) $langId . ' '
+            . 'JOIN `' . _DB_PREFIX_ . 'attribute_group_lang` agl ON agl.`id_attribute_group` = a.`id_attribute_group` AND agl.`id_lang` = ' . (int) $langId . ' '
+            . 'WHERE pac.`id_product_attribute` = ' . $idCombination . ' ORDER BY a.`id_attribute_group` ASC',
+        );
+        $parts = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            $parts[] = $row['group_name'] . ' : ' . $row['value'];
+        }
+
+        return implode(', ', $parts);
+    }
+
+    /**
+     * "refunded", "paid" or "pending"; '' for a cancelled or failed order
+     * that was never paid, where neither word is true.
+     */
+    private function paymentStatus(Order $order, OrderState $state)
+    {
+        $code = $this->statusCode($state);
+        if ($code === 'refunded') {
+            return 'refunded';
+        }
+        if ((Validate::isLoadedObject($state) && $state->paid) || $order->hasBeenPaid()) {
+            return 'paid';
+        }
+
+        return in_array($code, ['cancelled', 'failed'], true) ? '' : 'pending';
     }
 
     /**
