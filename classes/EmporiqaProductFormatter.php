@@ -21,6 +21,7 @@ class EmporiqaProductFormatter
     private static $manufacturerCache = [];
     private static $imageTypeCache = [];
     private static $currencyObjCache = [];
+    private static $categoryRewriteCache = [];
 
     /** @var EmporiqaChannelResolver */
     private $channelResolver;
@@ -30,6 +31,9 @@ class EmporiqaProductFormatter
 
     /** @var int the tax address of withPriceContext, 0 for the context country */
     private $taxAddressId = 0;
+
+    /** @var array<string, Product> the product of the format() running, per shop and language, for its links */
+    private $linkProducts = [];
 
     public function __construct(EmporiqaChannelResolver $channelResolver, Context $context)
     {
@@ -42,6 +46,7 @@ class EmporiqaProductFormatter
         self::$categoryLangCache = [];
         self::$manufacturerCache = [];
         self::$currencyObjCache = [];
+        self::$categoryRewriteCache = [];
     }
 
     /**
@@ -55,6 +60,7 @@ class EmporiqaProductFormatter
      */
     public function format(Product $product, $syncSessionId = null)
     {
+        $this->linkProducts = [];
         $productId = (int) $product->id;
         // Use the merchant's Reference field as SKU when set so that customers
         // who type the reference shown on the storefront page (e.g. "2332")
@@ -147,6 +153,7 @@ class EmporiqaProductFormatter
         }
 
         $hasVariations = count($groupedCombinations) > 0;
+        $combinationShops = $hasVariations ? $this->getCombinationShopIds($productId) : [];
 
         // Build per-channel data
         $channelKeys = [];
@@ -184,6 +191,15 @@ class EmporiqaProductFormatter
 
             $shopLink = new Link(null, null);
 
+            // The combinations this shop sells: one without a row in it is not
+            // offered there.
+            $shopPaIds = [];
+            foreach (array_keys($groupedCombinations) as $paId) {
+                if (in_array($shopId, $combinationShops[$paId] ?? [], true)) {
+                    $shopPaIds[] = $paId;
+                }
+            }
+
             foreach ($ctx['enabled_languages'] as $iso) {
                 $langId = isset($ctx['languages'][$iso]) ? $ctx['languages'][$iso] : null;
                 if (!$langId) {
@@ -196,7 +212,7 @@ class EmporiqaProductFormatter
                 $desc = is_array($shopProduct->description) ? ($shopProduct->description[$langId] ?? reset($shopProduct->description)) : $shopProduct->description;
                 $descriptions[$iso] = $desc ?: '';
 
-                $links[$iso] = $shopLink->getProductLink($shopProduct, null, null, null, $langId, $shopId);
+                $links[$iso] = $this->getProductLink($shopLink, $shopProduct, $langId, $shopId);
 
                 $features = $shopProduct->getFrontFeatures($langId);
                 $featureMap = [];
@@ -230,15 +246,22 @@ class EmporiqaProductFormatter
             $parentPaId = null;
             if ($hasVariations) {
                 $defaultPaId = (int) $shopProduct->cache_default_attribute;
-                $parentPaId = isset($groupedCombinations[$defaultPaId]) ? $defaultPaId : key($groupedCombinations);
+                if ($shopPaIds) {
+                    $parentPaId = in_array($defaultPaId, $shopPaIds, true) ? $defaultPaId : $shopPaIds[0];
+                } else {
+                    // Priced as a combination with no row here, which falls
+                    // back to the shop's base price.
+                    $parentPaId = isset($groupedCombinations[$defaultPaId]) ? $defaultPaId : key($groupedCombinations);
+                }
             }
             $allPrices[$channelKey] = $this->buildPriceEntries($productId, $parentPaId, $ctx['currencies'], $shopId, true);
 
-            // Stock & availability per shop
-            if ($hasVariations) {
+            // Stock & availability per shop: the sum of the combinations it
+            // sells; with none sold there, the product is sold as a simple one.
+            if ($shopPaIds) {
                 $parentAvailability = 'out_of_stock';
                 $parentStock = 0;
-                foreach (array_keys($groupedCombinations) as $paId) {
+                foreach ($shopPaIds as $paId) {
                     $qty = $this->getStockQuantity($productId, $shopId, $paId);
                     $parentStock += $qty;
                     $comboStatus = $this->getAvailabilityStatus($shopProduct, $qty, $paId, $shopId);
@@ -266,6 +289,9 @@ class EmporiqaProductFormatter
                             $fallbackGrouped = [];
                             foreach ($combinationsByLang[$defaultIso] as $combo) {
                                 $cPaId = (int) $combo['id_product_attribute'];
+                                if (!in_array($cPaId, $shopPaIds, true)) {
+                                    continue;
+                                }
                                 if (!isset($fallbackGrouped[$cPaId])) {
                                     $fallbackGrouped[$cPaId] = [];
                                 }
@@ -280,6 +306,9 @@ class EmporiqaProductFormatter
                     $langGrouped = [];
                     foreach ($combinationsByLang[$iso] as $combo) {
                         $cPaId = (int) $combo['id_product_attribute'];
+                        if (!in_array($cPaId, $shopPaIds, true)) {
+                            continue;
+                        }
                         if (!isset($langGrouped[$cPaId])) {
                             $langGrouped[$cPaId] = [];
                         }
@@ -351,7 +380,7 @@ class EmporiqaProductFormatter
                     $comboGroup,
                     $parentSku,
                     $contexts,
-                    $channelKeys,
+                    $combinationShops[$paId] ?? [],
                     $combinationsByLang,
                     $parentMinQty,
                     $syncSessionId,
@@ -440,6 +469,7 @@ class EmporiqaProductFormatter
             }
         }
         $hasVariations = count($groupedCombinations) > 0;
+        $combinationShops = $hasVariations ? $this->getCombinationShopIds($productId) : [];
 
         $result = [];
 
@@ -474,9 +504,15 @@ class EmporiqaProductFormatter
             $comboStocks = [];
             foreach ($contexts as $channelKey => $ctx) {
                 $shopId = $ctx['shop_id'];
+                if (!in_array($shopId, $combinationShops[$paId] ?? [], true)) {
+                    continue;
+                }
                 $qty = $this->getStockQuantity($productId, $shopId, $paId);
                 $comboStocks[$channelKey] = $qty;
                 $comboAvailabilities[$channelKey] = $this->getAvailabilityStatus($product, $qty, $paId, $shopId);
+            }
+            if (empty($comboStocks)) {
+                continue;
             }
 
             $comboReference = isset($combo['reference']) ? trim((string) $combo['reference']) : '';
@@ -497,12 +533,23 @@ class EmporiqaProductFormatter
         array $comboGroup,
         $parentSku,
         array $contexts,
-        array $channelKeys,
+        array $shopIds,
         array $combinationsByLang,
         $parentMinQty = 1,
         $syncSessionId = null,
     ) {
         $productId = (int) $product->id;
+
+        // Only the channels of the shops that sell this combination.
+        $channelKeys = [];
+        foreach ($contexts as $channelKey => $ctx) {
+            if (in_array($ctx['shop_id'], $shopIds, true)) {
+                $channelKeys[] = $channelKey;
+            }
+        }
+        if (empty($channelKeys)) {
+            return null;
+        }
         $defaultLangId = (int) Configuration::get('PS_LANG_DEFAULT');
 
         $defaultAttributes = [];
@@ -524,6 +571,9 @@ class EmporiqaProductFormatter
         $combinationImages = Image::getImages($defaultLangId, $productId, $paId);
 
         foreach ($contexts as $channelKey => $ctx) {
+            if (!in_array($channelKey, $channelKeys, true)) {
+                continue;
+            }
             $shopId = $ctx['shop_id'];
             $shopLink = new Link(null, null);
 
@@ -564,7 +614,7 @@ class EmporiqaProductFormatter
                 }
                 $names[$iso] = $name ?: '';
 
-                $links[$iso] = $shopLink->getProductLink($shopProduct, null, null, null, $langId, $shopId, $paId);
+                $links[$iso] = $this->getProductLink($shopLink, $shopProduct, $langId, $shopId, $paId);
 
                 $attributes[$iso] = !empty($langAttributes) ? $langAttributes : (!empty($defaultAttributes) ? $defaultAttributes : new stdClass());
             }
@@ -655,6 +705,83 @@ class EmporiqaProductFormatter
         }
 
         return $data;
+    }
+
+    /**
+     * The product's URL in one shop and language, as that shop's storefront
+     * builds it: the product loaded in that language and shop (Link reads
+     * the rewrite of a product loaded in all languages in the context
+     * language), with its default category's rewrite in that shop, which
+     * PrestaShop 8's default product route puts in the path ({category:/}).
+     * Product sets that rewrite itself only when loaded in one language, and
+     * from the context shop, so it is replaced; '' leaves the segment out.
+     *
+     * @param Link $link
+     * @param Product $shopProduct the product loaded for $shopId
+     * @param int $langId
+     * @param int $shopId
+     * @param int|null $paId a combination, for its own URL
+     *
+     * @return string
+     */
+    private function getProductLink(Link $link, Product $shopProduct, $langId, $shopId, $paId = null)
+    {
+        $key = (int) $shopProduct->id . '-' . (int) $shopId . '-' . (int) $langId;
+        if (!isset($this->linkProducts[$key])) {
+            $linkProduct = new Product((int) $shopProduct->id, false, (int) $langId, (int) $shopId);
+            if (!Validate::isLoadedObject($linkProduct)) {
+                $linkProduct = $shopProduct;
+            }
+            $linkProduct->category = $this->getCategoryRewrite((int) $linkProduct->id_category_default, (int) $langId, (int) $shopId);
+            $this->linkProducts[$key] = $linkProduct;
+        }
+
+        return $link->getProductLink($this->linkProducts[$key], null, null, null, (int) $langId, (int) $shopId, $paId);
+    }
+
+    /**
+     * A category's link_rewrite in one language and shop, '' when it has
+     * none there: Category::getLinkRewrite reads the context shop and
+     * caches without the shop.
+     *
+     * @return string
+     */
+    private function getCategoryRewrite($categoryId, $langId, $shopId)
+    {
+        if ($categoryId <= 0) {
+            return '';
+        }
+        $key = $categoryId . '-' . $langId . '-' . $shopId;
+        if (!isset(self::$categoryRewriteCache[$key])) {
+            self::$categoryRewriteCache[$key] = (string) Db::getInstance()->getValue(
+                'SELECT `link_rewrite` FROM `' . _DB_PREFIX_ . 'category_lang`'
+                . ' WHERE `id_category` = ' . (int) $categoryId . ' AND `id_lang` = ' . (int) $langId
+                . ' AND `id_shop` = ' . (int) $shopId,
+            );
+        }
+
+        return self::$categoryRewriteCache[$key];
+    }
+
+    /**
+     * The shops each combination of the product is sold in (its
+     * product_attribute_shop rows).
+     *
+     * @return array<int, int[]> combination id => shop ids
+     */
+    private function getCombinationShopIds($productId)
+    {
+        $rows = Db::getInstance()->executeS(
+            'SELECT pas.`id_product_attribute`, pas.`id_shop` FROM `' . _DB_PREFIX_ . 'product_attribute_shop` pas'
+            . ' INNER JOIN `' . _DB_PREFIX_ . 'product_attribute` pa ON pa.`id_product_attribute` = pas.`id_product_attribute`'
+            . ' WHERE pa.`id_product` = ' . (int) $productId,
+        );
+        $shops = [];
+        foreach ($rows ?: [] as $row) {
+            $shops[(int) $row['id_product_attribute']][] = (int) $row['id_shop'];
+        }
+
+        return $shops;
     }
 
     private function getAvailabilityStatus(Product $product, $stock, $paId = null, $shopId = null)

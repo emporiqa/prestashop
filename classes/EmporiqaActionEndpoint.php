@@ -8,6 +8,8 @@
  *
  *   ?key=order_status     read-only order lookup, signed both ways (scheme 2)
  *   ?key=customer_prices  what a signed-in customer pays, signed the same way
+ *   ?key=customer_info    who a signed-in customer is and their newest orders,
+ *                         signed the same way
  *   ?key=verify           the origin proof during one-click connect, and the
  *                         signed endpoint challenge
  *
@@ -86,7 +88,7 @@ class EmporiqaActionEndpoint
             $this->answerChallenge($payload, $requestId);
         }
 
-        if (!in_array($key, ['order_status', 'customer_prices'], true) || $payload['rule'] !== $key) {
+        if (!in_array($key, ['order_status', 'customer_prices', 'customer_info'], true) || $payload['rule'] !== $key) {
             $this->respond(404, ['status' => 'error', 'message_code' => 'disabled'], $requestId);
         }
 
@@ -99,13 +101,17 @@ class EmporiqaActionEndpoint
 
             // Counted after the dedupe, so Emporiqa's retry of one call is free.
             $shopId = (int) $this->context->shop->id;
-            $limited = $key === 'customer_prices'
-                ? EmporiqaCustomerPrices::rateLimitHit($payload, $shopId)
-                : EmporiqaOrderStatus::rateLimitHit(
+            if ($key === 'customer_prices') {
+                $limited = EmporiqaCustomerPrices::rateLimitHit($payload, $shopId);
+            } elseif ($key === 'customer_info') {
+                $limited = EmporiqaCustomerInfo::rateLimitHit($payload, $shopId);
+            } else {
+                $limited = EmporiqaOrderStatus::rateLimitHit(
                     EmporiqaOrderStatus::field($payload, 'order_number'),
                     EmporiqaOrderStatus::field($payload, 'email'),
                     $shopId,
                 );
+            }
             if ($limited !== null) {
                 $this->respond(
                     429,
@@ -115,9 +121,13 @@ class EmporiqaActionEndpoint
                 );
             }
 
-            $action = $key === 'customer_prices'
-                ? new EmporiqaCustomerPrices($this->context)
-                : new EmporiqaOrderStatus($this->context);
+            if ($key === 'customer_prices') {
+                $action = new EmporiqaCustomerPrices($this->context);
+            } elseif ($key === 'customer_info') {
+                $action = new EmporiqaCustomerInfo($this->context);
+            } else {
+                $action = new EmporiqaOrderStatus($this->context);
+            }
             $encoded = (string) EmporiqaJsonResponse::encode($action->handle($payload), self::JSON_FLAGS);
             EmporiqaOrderStatus::remember($requestId, 200, $encoded);
         } catch (Throwable $e) {

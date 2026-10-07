@@ -210,6 +210,11 @@ class EmporiqaChannelResolver
     {
         return [1 => 'default'];
     }
+
+    public static function visibleProductCondition($alias = 'ps')
+    {
+        return $alias . '.active = 1';
+    }
 }
 
 require dirname(__DIR__) . '/classes/EmporiqaSyncService.php';

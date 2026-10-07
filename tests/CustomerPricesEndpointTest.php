@@ -10,7 +10,9 @@
  *   running the action or counting against the limits again;
  * - a call over a limit is a signed 429 rate_limited naming the scope, with
  *   Retry-After;
- * - a failure is a signed 500 that says nothing about it.
+ * - a failure is a signed 500 that says nothing about it;
+ * - `customer_info` goes through the same guards to its own action and its
+ *   own limits, and its rule must match its key too.
  *
  * Self-contained (no PHPUnit, no PrestaShop). EmporiqaJsonResponse is a stub
  * that records the answer and throws instead of exiting.
@@ -132,6 +134,31 @@ class EmporiqaCustomerPrices
     }
 }
 
+class EmporiqaCustomerInfo
+{
+    public static $handled = 0;
+    public static $counted = 0;
+    public static $limit;
+
+    public function __construct($context)
+    {
+    }
+
+    public static function rateLimitHit(array $payload, $shopId)
+    {
+        ++self::$counted;
+
+        return self::$limit;
+    }
+
+    public function handle(array $payload)
+    {
+        ++self::$handled;
+
+        return ['status' => 'found', 'data' => ['customer' => ['name' => 'Emporiqa Test'], 'orders' => []]];
+    }
+}
+
 require __DIR__ . '/../classes/EmporiqaSignatureHelper.php';
 require __DIR__ . '/../classes/EmporiqaActionEndpoint.php';
 
@@ -230,6 +257,24 @@ EmporiqaCustomerPrices::$throw = true;
 $sent = post(['request_id' => 'req-3'] + $request);
 check('a signed 500', $sent[0] === 500 && $sent[1] === '{"status":"error","message_code":"internal"}' && signedOk($sent, 'req-3'));
 check('the detail goes to the shop log only', strpos(implode(' ', PrestaShopLogger::$lines), 'secret detail') !== false);
+
+echo "Scenario 6: customer_info has its own action and limits\n";
+EmporiqaCustomerPrices::$throw = false;
+$prices = [EmporiqaCustomerPrices::$handled, EmporiqaCustomerPrices::$counted];
+$info = ['rule' => 'customer_info', 'request_id' => 'info-1', 'customer' => ['id' => '77']];
+Tools::$key = 'customer_info';
+$sent = post($info, 'other-secret');
+check('a wrong secret is a 401 and runs nothing', $sent[0] === 401 && EmporiqaCustomerInfo::$handled === 0 && EmporiqaCustomerInfo::$counted === 0);
+$sent = post($info);
+check('answered by customer_info, signed', $sent[0] === 200 && json_decode($sent[1], true)['data']['customer']['name'] === 'Emporiqa Test'
+    && signedOk($sent, 'info-1'));
+check('counted on its own limits only', EmporiqaCustomerInfo::$counted === 1 && EmporiqaCustomerInfo::$handled === 1
+    && [EmporiqaCustomerPrices::$handled, EmporiqaCustomerPrices::$counted] === $prices);
+$sent = post(['rule' => 'customer_prices', 'request_id' => 'info-2'] + $info);
+check('a rule other than the key is a 404', $sent[0] === 404);
+EmporiqaCustomerInfo::$limit = ['scope' => 'store', 'retry_after' => 30];
+$sent = post(['request_id' => 'info-3'] + $info);
+check('over its limit: a signed 429', $sent[0] === 429 && json_decode($sent[1], true)['data']['scope'] === 'store' && signedOk($sent, 'info-3'));
 
 if ($failures > 0) {
     echo "\n{$failures} assertion(s) FAILED\n";

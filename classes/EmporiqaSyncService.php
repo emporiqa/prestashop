@@ -395,7 +395,7 @@ class EmporiqaSyncService
     }
 
     /**
-     * Count distinct active products across the enabled shops.
+     * Count distinct products shown in the enabled shops.
      */
     public function countProducts()
     {
@@ -403,7 +403,7 @@ class EmporiqaSyncService
         $sql->select('COUNT(DISTINCT p.id_product)');
         $sql->from('product', 'p');
         $sql->innerJoin('product_shop', 'ps', 'p.id_product = ps.id_product');
-        $sql->where('ps.active = 1');
+        $sql->where(EmporiqaChannelResolver::visibleProductCondition('ps'));
         $sql->where($this->enabledShopsCondition('ps.id_shop'));
 
         return (int) Db::getInstance()->getValue($sql);
@@ -435,7 +435,7 @@ class EmporiqaSyncService
         $sql->select('DISTINCT p.id_product');
         $sql->from('product', 'p');
         $sql->innerJoin('product_shop', 'ps', 'p.id_product = ps.id_product');
-        $sql->where('ps.active = 1');
+        $sql->where(EmporiqaChannelResolver::visibleProductCondition('ps'));
         $sql->where($this->enabledShopsCondition('ps.id_shop'));
         $sql->where('p.id_product > ' . (int) $afterId);
         $sql->orderBy('p.id_product ASC');

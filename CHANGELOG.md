@@ -7,8 +7,49 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Entries were reconstructed on 2026-09-02 from the module's own release commits.
 Until then this module was the only Emporiqa integration shipping without a
 changelog, which left 1.2.5 through 1.2.8 with no recorded rationale even though
-the work was real. Upgrade scripts exist for 1.2.0, 1.2.3, 1.2.4, 1.3.0 and
-1.3.1 only; the other releases need no data migration.
+the work was real. Upgrade scripts exist for 1.2.0, 1.2.3, 1.2.4, 1.3.0,
+1.3.1 and 1.3.3 only; the other releases need no data migration.
+
+## [1.3.3] - 2026-10-07
+
+For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.
+
+### Added
+- A `customer_info` action for Emporiqa (`controllers/front/action.php`,
+  `?key=customer_info`), on the same signed endpoint, replay window and
+  fail-closed rate limits as `customer_prices` (30 calls per customer and
+  600 per shop in 10 minutes). Given a signed-in customer, it answers the
+  name and email on their account and their 10 newest orders in the shops
+  you sync (reference, date, status, status in the order's language, total
+  paid, currency), so the chat can answer "Where is my order?" with the
+  latest order without asking for a number, and hand a conversation to
+  your team with the shopper's details. A split checkout is one order.
+  Never another customer's orders, a guest order placed with the same
+  email, an address, a phone or a group. An unknown, disabled, deleted or
+  guest customer is `not_found`.
+- The `actionEmporiqaCustomerInfo` hook runs after that answer is built, so
+  a module can remove fields or add its own under `extra` (README has an
+  example). The upgrade creates it.
+
+### Fixed
+- Product links are the URL your storefront uses, in every shop and
+  language. On PrestaShop 8, whose default product URL carries the
+  category (`/en/keyboards/72-…`), the links were sent without it, which
+  PrestaShop redirects, so Emporiqa did not recognise the product a
+  shopper was looking at. A link also took its product's URL name in the
+  language of whoever ran the sync, not in its own language. Run Sync
+  products once after updating to correct the links already sent; nothing
+  is re-indexed for it.
+- On a multistore install, a combination is sent only for the shops that
+  sell it, and a combination no synced shop sells is not sent. The
+  product's stock in a shop counts only the combinations sold there, and
+  in a shop that sells none of them it is the product's own stock.
+- A product set to Visibility "Nowhere" is no longer synced and is removed
+  from Emporiqa when you save it, as the chat's customer prices already
+  treated it. Catalog only and Search only products are still synced.
+
+The upgrade script creates the `actionEmporiqaCustomerInfo` hook; nothing
+else is migrated.
 
 ## [1.3.2] - 2026-10-06
 

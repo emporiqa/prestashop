@@ -32,12 +32,13 @@ if (PHP_VERSION_ID >= 80000) {
     require_once dirname(__FILE__) . '/classes/EmporiqaConnectNonce.php';
     require_once dirname(__FILE__) . '/classes/EmporiqaOrderStatus.php';
     require_once dirname(__FILE__) . '/classes/EmporiqaCustomerPrices.php';
+    require_once dirname(__FILE__) . '/classes/EmporiqaCustomerInfo.php';
 }
 
 class Emporiqa extends Module
 {
     /** Sent as X-Emporiqa-Plugin-Version; keep equal to the $this->version literal (the Addons validator wants a literal there) and config.xml. */
-    public const VERSION = '1.3.2';
+    public const VERSION = '1.3.3';
 
     public const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
 
@@ -127,7 +128,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.3.2';
+        $this->version = '1.3.3';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -374,7 +375,8 @@ class Emporiqa extends Module
             && $this->registerHook('actionObjectImageDeleteAfter')
             && $this->registerHook('actionObjectLanguageAddAfter')
             && $this->installConfig()
-            && $this->installDb();
+            && $this->installDb()
+            && $this->installOwnHooks();
 
         if ($originalContext !== null) {
             Shop::setContext($originalContext, $originalShopId);
@@ -393,6 +395,37 @@ class Emporiqa extends Module
         return parent::uninstall()
             && $this->uninstallConfig()
             && $this->uninstallDb();
+    }
+
+    /**
+     * The hooks this module runs for other modules, created so they are
+     * listed in PrestaShop's hook positions with a title. A module can
+     * register on them either way. Public for the upgrade scripts.
+     *
+     * @return bool
+     */
+    public function installOwnHooks()
+    {
+        $hooks = [
+            'actionEmporiqaCustomerInfo' => [
+                'Emporiqa: customer info answer',
+                'Change the signed-in customer\'s details and orders Emporiqa receives, or add fields under extra',
+            ],
+        ];
+        foreach ($hooks as $name => $text) {
+            if (Hook::getIdByName($name)) {
+                continue;
+            }
+            $hook = new Hook();
+            $hook->name = $name;
+            $hook->title = $text[0];
+            $hook->description = $text[1];
+            if (!$hook->add()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function installConfig()
@@ -2015,8 +2048,8 @@ class Emporiqa extends Module
 
     /**
      * The product.created / product.updated events for one product, [] when
-     * it is gone, vetoed or failed to format. An inactive product becomes
-     * its delete events.
+     * it is gone, vetoed or failed to format. An inactive product, or one
+     * shown in no synced shop, becomes its delete events.
      *
      * @return array<int, array{type: string, data: array}>
      */
@@ -2043,6 +2076,11 @@ class Emporiqa extends Module
             }
 
             $formatted = $this->getProductFormatter()->format($product);
+            // Shown in no synced shop (visibility "Nowhere", or only in shops
+            // that are not synced): what a full sync would reconcile away.
+            if (empty($formatted)) {
+                return $this->productDeleteEvents($productId);
+            }
 
             // Let other modules tweak each parent/variation payload.
             foreach ($formatted as &$item) {

@@ -25,7 +25,7 @@ The [Emporiqa](https://emporiqa.com) AI chatbot for PrestaShop 8.1+ and 9 is an 
 
 **On HTTP, or prefer to paste credentials yourself?** Expand **Edit credentials manually** on the Configure page. Paste a **Store ID** and **Connection Secret** from your Emporiqa dashboard under **Settings → Integration**. Both flows reach the same place.
 
-**Order status in the chat.** Once connected, the Configure page shows a **Ready-made rules** section. Click **Open in Emporiqa** next to **Order status**, then in Emporiqa click **Try it** to test the rule and **Go live** to switch it on. You do not need to copy anything: Emporiqa fills in your shop's address by itself when you connect in one click. If it ever asks for the address, the **Order status address** field in the same section shows the one to use, with a **Copy** button. The rule answers "Where is my order?" from your PrestaShop orders: a shopper signed in to your shop only gives the order reference, and a guest also gives the order's email. Once the order is proven, the chat can tell the shopper everything their order page shows: status, tracking, the items with their prices, the totals, payment, carrier and delivery time, and the delivery and invoice addresses. If you connected with manual credentials and the section does not show yet, click **Test Connection** on the Sync tab. Shops that already set up the older order tracking address keep it working as before; once Order status is on, the note under **Advanced** tells you how to switch the old one off.
+**Order status in the chat.** Once connected, the Configure page shows a **Ready-made rules** section. Click **Open in Emporiqa** next to **Order status**, then in Emporiqa click **Try it** to test the rule and **Go live** to switch it on. You do not need to copy anything: Emporiqa fills in your shop's address by itself when you connect in one click. If it ever asks for the address, the **Order status address** field in the same section shows the one to use, with a **Copy** button. The rule answers "Where is my order?" from your PrestaShop orders: a shopper signed in to your shop only gives the order reference, and a guest also gives the order's email. Once the order is proven, the chat can tell the shopper everything their order page shows: status, tracking, the items with their prices, the totals, payment, carrier and delivery time, and the delivery and invoice addresses. When the shopper is signed in, Emporiqa can also ask your shop who they are: the name and email on their account and their 10 newest orders (number, date, status, total) in the shops you sync, so the chat can answer "Where is my order?" with their latest order without asking for a number, and pass a conversation to your team with their details. Only the signed-in shopper's own account and orders are sent, never another customer's, a guest order or an address. If you connected with manual credentials and the section does not show yet, click **Test Connection** on the Sync tab. Shops that already set up the older order tracking address keep it working as before; once Order status is on, the note under **Advanced** tells you how to switch the old one off.
 
 ## Configuration
 
@@ -99,6 +99,8 @@ These flags are part of the full product and combination payload, not the lightw
 
 A combination carries no `descriptions`, `categories`, `brands`, `variation_attributes` or `is_parent`: Emporiqa takes the first three from its product and ignores them on a combination.
 
+A product is sent for the shops where it is active and not hidden with **Visibility: Nowhere**; setting a product to Nowhere removes it from Emporiqa. On a multistore install, a combination is sent only for the shops that sell it, and the product's stock in a shop counts only those combinations. The `links` are the product's own URL in each shop and language, built as your storefront builds it (with the category, when your product URL format has one).
+
 ## Module structure
 
 ```
@@ -107,13 +109,14 @@ emporiqa/
 ├── config.xml                   # Module metadata
 ├── logo.png                     # Module icon
 ├── classes/
-│   ├── EmporiqaActionEndpoint.php    # Ready-made rules endpoint (order_status, customer_prices, verify)
+│   ├── EmporiqaActionEndpoint.php    # Ready-made rules endpoint (order_status, customer_prices, customer_info, verify)
 │   ├── EmporiqaCartApiEndpoint.php   # Cart API body (POST only, never cached)
 │   ├── EmporiqaCartHandler.php       # In-chat cart operations
 │   ├── EmporiqaChannelResolver.php   # Multi-shop → channel mapping
 │   ├── EmporiqaConnectHandshake.php  # One-click connect handshake body
 │   ├── EmporiqaConnectNonce.php      # One-click connect PKCE verifier store
 │   ├── EmporiqaCustomerPrices.php    # What a signed-in customer pays (customer_prices)
+│   ├── EmporiqaCustomerInfo.php      # Who a signed-in customer is and their newest orders (customer_info)
 │   ├── EmporiqaJsonResponse.php      # The one JSON response helper (PHP 7 parseable)
 │   ├── EmporiqaLanguageHelper.php    # Language mapping utilities
 │   ├── EmporiqaOrderFormatter.php    # Order payload formatting
@@ -189,6 +192,7 @@ Developers can hook into the sync pipeline to customize payloads or cancel syncs
 | `actionEmporiqaWidgetParams` | Modify chat widget embed parameters | `&$params` |
 | `actionEmporiqaOrderStatus` | Modify the Order status ready-made rule's answer, or add your own fields under `extra` | `&$data`, `$order` |
 | `actionEmporiqaOrderTracking` | Modify the order tracking response | `&$data`, `$order` |
+| `actionEmporiqaCustomerInfo` | Modify what Emporiqa learns about a signed-in customer (account name and email, newest orders), or add your own fields under `extra` | `&$data`, `$customer` |
 
 `actionEmporiqaOrderStatus` runs after the module has filled the answer (status, tracking, items, totals, payment, carrier, addresses), so you can change any of it. Put fields of your own under `extra`, which the chat reads when the shopper asks for them: string keys, values that are strings, numbers, booleans or nested lists and objects, at most 30 keys, 3 levels deep and 500 characters a string. Other keys you add are ignored.
 
@@ -198,6 +202,17 @@ public function hookActionEmporiqaOrderStatus(array $params)
     $order = $params['order'];
     $params['data']['extra']['gift_message'] = 'Happy birthday';
     $params['data']['extra']['warehouse'] = 'Lyon';
+}
+```
+
+`actionEmporiqaCustomerInfo` runs after the module has filled `$params['data']`: `customer` (`name`, `first_name`, `last_name`, `email` from the account) and `orders` (up to 10, newest first: `order_number`, `placed_at`, `status_code`, `status_label`, `total`, `currency`). Remove what you do not want Emporiqa to know, or add fields under `extra` with the same limits as above.
+
+```php
+public function hookActionEmporiqaCustomerInfo(array $params)
+{
+    $customer = $params['customer'];
+    unset($params['data']['customer']['email']);
+    $params['data']['extra']['loyalty_points'] = 120;
 }
 ```
 

@@ -8,7 +8,10 @@
  * - delete still wins over an update, and a stock-only event is dropped for a
  *   product that also got a full sync;
  * - a failing automatic send stamps EMPORIQA_LAST_AUTO_FAIL once per request,
- *   not once per send.
+ *   not once per send;
+ * - a saved product shown in no synced shop (visibility "Nowhere", which the
+ *   formatter answers with no item) is deleted with its variations, not left
+ *   in Emporiqa.
  *
  * Self-contained (no PHPUnit, no PrestaShop): PrestaShop classes are stubbed,
  * the real Emporiqa module class is loaded, and the webhook client and
@@ -110,12 +113,18 @@ require __DIR__ . '/../emporiqa.php';
 
 class FakeFormatter extends EmporiqaProductFormatter
 {
+    /** @var int[] products shown in no synced shop */
+    public static $nowhere = [];
+
     public function __construct()
     {
     }
 
     public function format(Product $product, $syncSessionId = null)
     {
+        if (in_array($product->id, self::$nowhere, true)) {
+            return [];
+        }
         $items = [['identification_number' => 'product-' . $product->id]];
         for ($i = 1; $i <= (Product::$variations[$product->id] ?? 0); ++$i) {
             $items[] = ['identification_number' => 'variation-' . ($product->id * 1000 + $i)];
@@ -285,6 +294,18 @@ foreach ([true, false] as $accepts) {
         Configuration::$values['EMPORIQA_PRICE_WINDOW_SENT_UNTIL'] === ($accepts ? 500 : 100));
 }
 RecordingClient::$accepts = true;
+
+echo "Scenario 7: a saved product shown nowhere is deleted with its variations\n";
+Product::$variations = [8 => 2];
+FakeFormatter::$nowhere = [8];
+$requests = flushQueued(['product_syncs' => [8 => 'product.updated', 6 => 'product.updated']]);
+FakeFormatter::$nowhere = [];
+check('8 and its variations deleted, 6 still sent', ids($requests) === [
+    'product.deleted product-8',
+    'product.deleted variation-8001',
+    'product.deleted variation-8002',
+    'product.updated product-6',
+]);
 
 if ($failures > 0) {
     echo "\n{$failures} assertion(s) FAILED\n";

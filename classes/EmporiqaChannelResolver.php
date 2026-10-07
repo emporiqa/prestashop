@@ -214,7 +214,21 @@ class EmporiqaChannelResolver
     }
 
     /**
-     * Get all shop IDs a product is assigned to.
+     * The condition a product_shop row meets when the product is shown in
+     * that shop: active, and not hidden everywhere (visibility "Nowhere"),
+     * which is also what the customer_prices action checks.
+     *
+     * @param string $alias the product_shop alias
+     *
+     * @return string
+     */
+    public static function visibleProductCondition($alias = 'ps')
+    {
+        return $alias . '.active = 1 AND ' . $alias . ".visibility != 'none'";
+    }
+
+    /**
+     * Get all shop IDs a product is shown in.
      *
      * @param int $productId
      *
@@ -226,7 +240,7 @@ class EmporiqaChannelResolver
         $sql->select('ps.id_shop');
         $sql->from('product_shop', 'ps');
         $sql->where('ps.id_product = ' . (int) $productId);
-        $sql->where('ps.active = 1');
+        $sql->where(self::visibleProductCondition('ps'));
 
         $rows = Db::getInstance()->executeS($sql);
         if (!$rows) {

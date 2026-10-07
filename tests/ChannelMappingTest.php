@@ -10,7 +10,9 @@
  *   one carries its id), so neither overwrites the other's data;
  * - a channel's currencies are the shop's active ones with an exchange rate
  *   there (its default currency needs none): PrestaShop converts a price to
- *   0 in a currency the shop has no rate for.
+ *   0 in a currency the shop has no rate for;
+ * - a product names only the shops it is shown in: active there and not
+ *   hidden everywhere (visibility "Nowhere"), as customer_prices checks.
  *
  * Self-contained (no PHPUnit, no PrestaShop): PrestaShop classes are stubbed
  * and the real EmporiqaChannelResolver is loaded.
@@ -100,8 +102,12 @@ class Tools
 
 class DbQuery
 {
+    /** @var string[] the where() conditions of the last query built */
+    public static $wheres = [];
+
     public function select($v)
     {
+        self::$wheres = [];
     }
 
     public function from($v, $alias = null)
@@ -110,6 +116,7 @@ class DbQuery
 
     public function where($v)
     {
+        self::$wheres[] = $v;
     }
 }
 
@@ -195,6 +202,14 @@ $build = new ReflectionMethod('EmporiqaChannelResolver', 'buildShopContext');
 $build->setAccessible(true);
 $ctx = $build->invoke(resolver(), 2, 'french-shop', []);
 check('the default and the rated active currencies only', array_column($ctx['currencies'], 'iso_code') === ['EUR', 'USD']);
+
+echo "Scenario 5: a product names only the shops it is shown in\n";
+Configuration::$values = [];
+Db::$rows = [['id_shop' => 1]];
+resolver()->getProductShopIds(5);
+check('active and not visibility Nowhere', in_array("ps.active = 1 AND ps.visibility != 'none'", DbQuery::$wheres, true));
+resolver()->getPageShopIds(5);
+check('pages have no visibility', DbQuery::$wheres === ['cs.id_cms = 5']);
 
 if ($failures > 0) {
     echo "\n{$failures} assertion(s) FAILED\n";

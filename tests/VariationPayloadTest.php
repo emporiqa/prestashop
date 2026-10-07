@@ -20,6 +20,7 @@
  * @license   https://opensource.org/licenses/AFL-3.0 Academic Free License version 3.0
  */
 define('_PS_VERSION_', '8.1.0');
+define('_DB_PREFIX_', 'ps_');
 define('PS_TAX_EXC', 1);
 
 class Context
@@ -120,7 +121,26 @@ class Link
 {
     public function getProductLink($product, $a = null, $b = null, $c = null, $langId = null, $shopId = null, $paId = 0)
     {
-        return 'https://shop.test/p/' . $product->id . ($paId ? '#' . $paId : '');
+        return 'https://shop.test/p/' . (is_object($product) ? $product->id : $product) . ($paId ? '#' . $paId : '');
+    }
+}
+
+class Db
+{
+    public static function getInstance()
+    {
+        return new self();
+    }
+
+    public function getValue($sql)
+    {
+        return 'tees';
+    }
+
+    public function executeS($sql)
+    {
+        // product_attribute_shop: combination 7 is sold in shop 1
+        return [['id_product_attribute' => 7, 'id_shop' => 1]];
     }
 }
 
@@ -170,6 +190,8 @@ class Product
     public $condition = 'new';
     public $is_virtual = false;
     public $cache_default_attribute = 7;
+    public $id_category_default = 4;
+    public $category;
 
     public function __construct($id = null)
     {

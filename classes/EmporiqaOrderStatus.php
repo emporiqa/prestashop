@@ -293,7 +293,7 @@ class EmporiqaOrderStatus
         }
 
         $data = [
-            'status_code' => $this->statusCode($state),
+            'status_code' => self::statusCode($state),
             'status_label' => $label,
             'placed_at' => date('c', strtotime($order->date_add)),
             'tracking' => [],
@@ -487,7 +487,7 @@ class EmporiqaOrderStatus
      */
     private function paymentStatus(Order $order, OrderState $state)
     {
-        $code = $this->statusCode($state);
+        $code = self::statusCode($state);
         if ($code === 'refunded') {
             return 'refunded';
         }
@@ -551,7 +551,13 @@ class EmporiqaOrderStatus
         return $entry;
     }
 
-    private function statusCode(OrderState $state)
+    /**
+     * The catalog status code (Emporiqa's fixed list) of an order state,
+     * shared with customer_info.
+     *
+     * @return string
+     */
+    public static function statusCode(OrderState $state)
     {
         if (!Validate::isLoadedObject($state)) {
             return 'pending';
