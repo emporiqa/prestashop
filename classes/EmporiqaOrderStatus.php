@@ -21,6 +21,9 @@ class EmporiqaOrderStatus
     /** Emporiqa retries a call with the same request_id for up to 10 minutes. */
     public const DEDUPE_TTL_SECONDS = 600;
 
+    /** One storefront page view in this many also deletes expired answers. */
+    public const FORGET_ODDS = 50;
+
     public const RATE_TABLE = 'emporiqa_action_rate';
 
     /**
@@ -125,6 +128,7 @@ class EmporiqaOrderStatus
      */
     public static function remembered($requestId)
     {
+        self::forgetExpired();
         $row = Db::getInstance()->getRow(
             'SELECT `http_code`, `response` FROM `' . _DB_PREFIX_ . self::REQUEST_TABLE . '` '
             . 'WHERE `request_hash` = "' . pSQL(hash('sha256', $requestId)) . '" '
@@ -136,16 +140,49 @@ class EmporiqaOrderStatus
 
     public static function remember($requestId, $httpCode, $body)
     {
-        Db::getInstance()->execute(
-            'DELETE FROM `' . _DB_PREFIX_ . self::REQUEST_TABLE . '` '
-            . 'WHERE `created_at` < ' . (int) (time() - self::DEDUPE_TTL_SECONDS),
-        );
+        self::forgetExpired();
         Db::getInstance()->insert(self::REQUEST_TABLE, [
             'request_hash' => pSQL(hash('sha256', $requestId)),
             'http_code' => (int) $httpCode,
             'response' => pSQL($body, true),
             'created_at' => time(),
         ], false, true, Db::REPLACE);
+    }
+
+    /**
+     * Delete the remembered answers older than the replay window. They hold
+     * a customer's name, addresses and orders, and nothing reads them after
+     * the window: kept, they would sit in every database backup. Runs on
+     * each call of the endpoint and, for a shop whose chat goes quiet, from
+     * storefront page views (forgetExpiredSometimes). The delete is on the
+     * created_at index, so it costs nothing when there is nothing to delete.
+     */
+    public static function forgetExpired()
+    {
+        Db::getInstance()->execute(
+            'DELETE FROM `' . _DB_PREFIX_ . self::REQUEST_TABLE . '` '
+            . 'WHERE `created_at` < ' . (int) (time() - self::DEDUPE_TTL_SECONDS),
+        );
+    }
+
+    /**
+     * forgetExpired() on about one storefront page view in FORGET_ODDS. A
+     * failure is logged and never breaks the page.
+     *
+     * @return bool whether it ran
+     */
+    public static function forgetExpiredSometimes()
+    {
+        if (mt_rand(1, self::FORGET_ODDS) !== 1) {
+            return false;
+        }
+        try {
+            self::forgetExpired();
+        } catch (Throwable $e) {
+            PrestaShopLogger::addLog('[Emporiqa] deleting expired action answers failed: ' . $e->getMessage(), 2, null, 'Emporiqa');
+        }
+
+        return true;
     }
 
     /**
@@ -170,9 +207,15 @@ class EmporiqaOrderStatus
      */
     public function handle(array $payload)
     {
+        // Digits only, as customer_info and customer_prices read it: true,
+        // '77abc' or 1.9 is refused rather than cast to another customer.
         $customerId = 0;
-        if (isset($payload['customer']['id']) && is_scalar($payload['customer']['id'])) {
-            $customerId = (int) $payload['customer']['id'];
+        if (isset($payload['customer']['id'])) {
+            $id = $payload['customer']['id'];
+            if (!is_scalar($id) || is_bool($id) || !ctype_digit((string) $id) || (int) $id <= 0) {
+                return ['status' => 'rejected', 'message_code' => 'invalid_field'];
+            }
+            $customerId = (int) $id;
         }
 
         $orderNumber = self::field($payload, 'order_number');

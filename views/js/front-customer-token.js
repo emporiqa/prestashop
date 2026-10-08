@@ -12,7 +12,8 @@
  * so the widget holds the shopper's first message for the token, then
  *   {type: 'EMPORIQA_CUSTOMER_TOKEN', token: '<token>' | ''}
  * ('' for a guest). A window.postMessage reaches every "message" listener on
- * the page; a port reaches only embed.js.
+ * the page; a port reaches only embed.js. A request without a port is not
+ * answered.
  *
  * A guest (prestashop.customer.is_logged false) is answered '' at once, with
  * no request. A signed-in shopper costs one uncached POST to the token
@@ -82,21 +83,15 @@
         if (!data || data.type !== 'EMPORIQA_TOKEN_REQUEST') {
             return;
         }
+        // A request without a port gets no answer: on the window the token
+        // would reach every other script listening for messages.
         var port = event.ports && event.ports[0];
-        var reply = port
-            ? function (message) {
-                port.postMessage(message);
-            }
-            // Legacy: an embed.js from before the MessageChannel handshake
-            // sends no port and listens on the window. Remove when the
-            // port-sending embed.js is live on emporiqa.com (not yet as of
-            // October 2026) and cached copies of the old one have expired.
-            : function (message) {
-                window.postMessage(message, origin);
-            };
-        reply({ type: 'EMPORIQA_TOKEN_PENDING' });
+        if (!port) {
+            return;
+        }
+        port.postMessage({ type: 'EMPORIQA_TOKEN_PENDING' });
         fetchToken().then(function (token) {
-            reply({ type: 'EMPORIQA_CUSTOMER_TOKEN', token: token });
+            port.postMessage({ type: 'EMPORIQA_CUSTOMER_TOKEN', token: token });
         });
     });
 })();

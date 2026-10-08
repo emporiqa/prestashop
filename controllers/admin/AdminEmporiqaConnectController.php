@@ -62,6 +62,17 @@ class AdminEmporiqaConnectController extends ModuleAdminController
             exit;
         }
 
+        // Ticking the Emporiqa menu entry for a profile also grants this hidden
+        // tab, but connecting replaces the store id and secret: only an employee
+        // who may configure the module (as the settings page and Sync require)
+        // gets through. The settings page then says permission is denied.
+        if (!$this->module->getPermission('configure', $this->context->employee)) {
+            Tools::redirectAdmin(
+                $this->context->link->getAdminLink('AdminModules', true, [], ['configure' => 'emporiqa'])
+            );
+            exit;
+        }
+
         require_once dirname(__FILE__) . '/../../classes/EmporiqaConnectHandshake.php';
         $handshake = new EmporiqaConnectHandshake($this->context, $this->module);
         $handshake->handle((string) Tools::getValue('action'));

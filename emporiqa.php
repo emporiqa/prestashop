@@ -38,7 +38,7 @@ if (PHP_VERSION_ID >= 80000) {
 class Emporiqa extends Module
 {
     /** Sent as X-Emporiqa-Plugin-Version; keep equal to the $this->version literal (the Addons validator wants a literal there) and config.xml. */
-    public const VERSION = '1.3.3';
+    public const VERSION = '1.3.4';
 
     public const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
 
@@ -128,7 +128,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.3.3';
+        $this->version = '1.3.4';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -545,14 +545,21 @@ class Emporiqa extends Module
             return $this->displayError($this->l('Emporiqa needs PHP 8.0 or newer.'));
         }
 
+        if (Tools::isSubmit('ajax') && Tools::getValue('action') === 'emporiqaSyncAjax') {
+            $this->handleSyncAjax();
+        }
+
+        // PrestaShop opens this page for anyone who may see the module list and
+        // only hides the Configure button: the settings hold the store id and
+        // the secret, so the module's configure permission is checked here too.
+        if (!$this->context->employee || !$this->getPermission('configure', $this->context->employee)) {
+            return $this->displayError($this->l('Permission denied.'));
+        }
+
         $output = '';
 
         if (Tools::isSubmit('submitEmporiqaSettings')) {
             $output .= $this->postProcess();
-        }
-
-        if (Tools::isSubmit('ajax') && Tools::getValue('action') === 'emporiqaSyncAjax') {
-            $this->handleSyncAjax();
         }
 
         return $output . $this->renderConfigPage();
@@ -896,6 +903,7 @@ class Emporiqa extends Module
         }
 
         $this->queueScheduledPriceChanges();
+        EmporiqaOrderStatus::forgetExpiredSometimes();
 
         if (!$this->getChannelResolver()->isShopEnabled((int) $this->context->shop->id)) {
             return '';

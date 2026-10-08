@@ -10,6 +10,39 @@ changelog, which left 1.2.5 through 1.2.8 with no recorded rationale even though
 the work was real. Upgrade scripts exist for 1.2.0, 1.2.3, 1.2.4, 1.3.0,
 1.3.1 and 1.3.3 only; the other releases need no data migration.
 
+## [1.3.4] - 2026-10-08
+
+For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.
+
+### Security
+- Connecting the shop to Emporiqa, and opening or saving the module's
+  settings, now needs the module's Configure permission. Before, an
+  employee whose profile could only see the Emporiqa menu entry or the
+  module list could run the one-click connect and replace your store ID
+  and secret. Administrators and profiles that already configure the
+  module see no change; anyone else is told permission is denied.
+- The answers the module keeps so that Emporiqa can safely retry a call
+  (an order's details, a customer's name and orders) are deleted once the
+  10-minute retry window is over, also on a shop whose chat goes quiet.
+  Before, the last answers could stay in the database until the next chat
+  lookup.
+- The script that hands the signed-in customer's token to the chat only
+  answers the chat's private channel. It no longer falls back to a page-wide
+  message that other scripts on the page could read.
+
+### Fixed
+- Add to cart from the chat makes the same checks as your shop's own cart:
+  a product not sold in the current shop, not visible to the shopper's
+  customer group, not available for order, set to Visibility "Nowhere",
+  or out of stock (unless it can be ordered out of stock) is not added,
+  and a combination must belong to the product in the current shop. The
+  quantity already in the cart counts towards the stock.
+- Order status refuses a customer ID that is not a plain number,
+  as the customer info and customer prices actions already did, instead
+  of reading it as another number.
+
+No upgrade script; nothing is migrated.
+
 ## [1.3.3] - 2026-10-07
 
 For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.

@@ -56,10 +56,27 @@ class EmporiqaCartHandler
         // Ensure cart exists
         $this->ensureCart();
 
+        // The checks PrestaShop's own cart makes: a product this shop does not
+        // sell, that this customer's group may not see, that is not for sale,
+        // or that is hidden everywhere (and so never synced) is not added.
+        if (!$product->isAssociatedToShop()
+            || !$product->checkAccess((int) $this->context->cart->id_customer)
+            || !$product->available_for_order
+            || $product->visibility === 'none') {
+            return $this->errorResponse('Product not found.');
+        }
+
         // Check if product has combinations and variation is required
         $hasCombinations = (bool) Product::getProductAttributesIds($productId);
         if ($hasCombinations && !$variationId) {
             return $this->errorResponse('Please select a product variation.');
+        }
+        if ($variationId && !in_array($variationId, self::shopVariationIds($productId), true)) {
+            return $this->errorResponse('Product variation not found.');
+        }
+
+        if (!$this->inStock($product, $variationId, $quantity)) {
+            return $this->errorResponse('Not enough stock.');
         }
 
         $result = $this->context->cart->updateQty(
@@ -298,6 +315,40 @@ class EmporiqaCartHandler
         }
 
         return (int) $value;
+    }
+
+    /**
+     * The product's combinations sold in the current shop.
+     *
+     * @return int[]
+     */
+    private static function shopVariationIds($productId)
+    {
+        $ids = [];
+        foreach (Product::getProductAttributesIds($productId, true) ?: [] as $row) {
+            $ids[] = (int) $row['id_product_attribute'];
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Whether the cart can hold $quantity more, as PrestaShop's cart controller
+     * decides: always when the product may be ordered out of stock, otherwise
+     * only while the stock covers what the cart already holds plus $quantity.
+     */
+    private function inStock(Product $product, $variationId, $quantity)
+    {
+        if (Product::isAvailableWhenOutOfStock(StockAvailable::outOfStock((int) $product->id))) {
+            return true;
+        }
+        $inCart = $this->context->cart->getProductQuantity((int) $product->id, $variationId);
+        $wanted = (int) ($inCart['quantity'] ?? 0) + $quantity;
+        if ($variationId) {
+            return (bool) ProductAttribute::checkAttributeQty($variationId, $wanted);
+        }
+
+        return Product::getQuantity((int) $product->id) >= $wanted;
     }
 
     /**

@@ -15,7 +15,9 @@
  * - the actionEmporiqaOrderStatus hook runs after the filling, so a module
  *   can change a key and add its own under `extra`;
  * - no email, customer id or other internal id is in the answer;
- * - the proof is unchanged: another customer's id finds nothing.
+ * - the proof is unchanged: another customer's id finds nothing;
+ * - a customer id that is not digits (true, '5abc', 5.9) is refused, as
+ *   customer_info and customer_prices refuse it, never cast to a customer.
  *
  * Self-contained (no PHPUnit, no PrestaShop): the core classes it touches
  * are stubs fed from the arrays below.
@@ -487,6 +489,15 @@ check('items capped at 50', count($data['items']) === 50);
 reset_fixtures();
 check('another customer\'s id finds nothing', lookup(['order_number' => 'ABCDEFGHI'], ['id' => 6]) === ['status' => 'not_found']);
 check('a wrong email finds nothing', lookup(['order_number' => 'ABCDEFGHI', 'email' => 'bob@example.com']) === ['status' => 'not_found']);
+
+// 7b. A customer id that is not digits is refused, never cast to another customer.
+reset_fixtures();
+$invalid = ['status' => 'rejected', 'message_code' => 'invalid_field'];
+check('the customer\'s id as digits finds the order', lookup(['order_number' => 'ABCDEFGHI'], ['id' => '5'])['status'] === 'found');
+foreach (['true' => true, "'5abc'" => '5abc', '5.9' => 5.9, "'5.0'" => '5.0', "'-5'" => '-5', "'0'" => '0', "' 5'" => ' 5', 'an array' => [5]] as $label => $id) {
+    check('customer id ' . $label . ' is refused', lookup(['order_number' => 'ABCDEFGHI'], ['id' => $id]) === $invalid);
+}
+check('refused with an email too', lookup(['order_number' => 'ABCDEFGHI', 'email' => 'anna@example.com'], ['id' => '5abc']) === $invalid);
 
 // 8. A currency without decimals rounds to it.
 reset_fixtures();

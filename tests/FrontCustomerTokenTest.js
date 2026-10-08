@@ -4,8 +4,8 @@
  *
  * What must never regress: a request that carries a MessageChannel port is
  * answered ONLY on that port, so no other script on the page sees the token;
- * a request without a port (an older embed.js) is answered on the window, as
- * before. Only requests from this window and origin are answered. A guest
+ * a request without a port is not answered at all, never on the window, and
+ * costs no token request. Only requests from this window and origin are answered. A guest
  * never causes a request; a non-2xx answer is never reused.
  *
  * Self-contained (no jsdom, no PrestaShop): the window is a fake.
@@ -95,14 +95,13 @@ function onPort() {
         channel.port1.close();
     }
 
-    console.log("Scenario 2: an older embed.js, no port");
+    console.log('Scenario 2: a request without a port');
     {
-        const { windowPosts, dispatch } = makeWindow();
+        const { windowPosts, fetches, dispatch } = makeWindow();
         dispatch({ type: 'EMPORIQA_TOKEN_REQUEST' });
         await wait(50);
-        check('answered on the window, to this origin only',
-            windowPosts.length === 2 && windowPosts.every((m) => m.target === ORIGIN)
-            && windowPosts[1].data.token === TOKEN);
+        check('nothing on the window', windowPosts.length === 0);
+        check('no token request', fetches.length === 0);
     }
 
     console.log('Scenario 3: a guest');
