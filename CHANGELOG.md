@@ -10,6 +10,21 @@ changelog, which left 1.2.5 through 1.2.8 with no recorded rationale even though
 the work was real. Upgrade scripts exist for 1.2.0, 1.2.3, 1.2.4, 1.3.0,
 1.3.1 and 1.3.3 only; the other releases need no data migration.
 
+## [1.3.5] - 2026-10-26
+
+For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.
+
+### Fixed
+- After a sync, the Sync tab no longer says the chat goes live by itself
+  once the first product is ready. The chat appears on your shop once you
+  press Go live in your Emporiqa dashboard.
+
+### Changed
+- The module description calls Emporiqa an AI shop assistant instead of
+  an AI salesperson, in English, French and German.
+
+No upgrade script; nothing is migrated.
+
 ## [1.3.4] - 2026-10-08
 
 For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.

@@ -1,13 +1,13 @@
 # Emporiqa : Chatbot IA pour PrestaShop
 
-[Emporiqa](https://emporiqa.com) pour PrestaShop 8.1+ et 9 est le chat IA qui vend avant l'achat et accompagne vos clients après. Avant l'achat, le client décrit ce qu'il cherche ou envoie une photo, et le chat trouve les produits correspondants dans votre catalogue, les compare et les ajoute au panier. Après l'achat, il répond aux questions à partir de vos pages CMS et indique au client où en est sa commande. Un client connecté voit ses propres prix, tels que votre boutique les calcule, et est salué par son prénom. Quand un client a besoin d'une personne, votre équipe prend le relais dans le chat. Il répond en 65+ langues. Ce module synchronise votre catalogue produits et vos pages CMS avec Emporiqa, insère le widget de chat sur votre vitrine et répond aux demandes du chat concernant le panier et le statut des commandes.
+[Emporiqa](https://emporiqa.com) pour PrestaShop 8.1+ et 9 est un assistant de boutique IA pour la vente et le service client, dans le chat de votre boutique et dans vos e-mails clients. Il travaille aux côtés de votre équipe, qui peut reprendre la main sur n'importe quel chat. Avant l'achat, le client décrit ce qu'il cherche ou envoie une photo, et le chat trouve les produits correspondants dans votre catalogue, les compare et les ajoute au panier. Après l'achat, il répond aux questions à partir de vos pages CMS et indique au client où en est sa commande. Un client connecté voit ses propres prix, tels que votre boutique les calcule, et est salué par son prénom. Le chat répond en 65 langues. E-mails clients : connectez la boîte mail de votre boutique (Gmail, Google Workspace, Microsoft 365, Outlook.com, IONOS, Strato, OVHcloud ou toute boîte IMAP) et Emporiqa rédige chaque réponse à partir de votre catalogue et de vos pages, dans la langue du client. Les détails de commande dans les brouillons, ainsi que les réponses automatiques, sont disponibles avec Gmail, Google Workspace et Microsoft (Outlook.com et Microsoft 365). Les réponses automatiques restent désactivées tant que vous ne les activez pas. Elles ne couvrent que les sujets pour lesquels votre équipe a déjà envoyé de nombreuses fois le brouillon sans le modifier, et chacune reste 10 minutes en attente, le temps que n'importe qui puisse l'arrêter. Toute autre réponse est un brouillon que votre équipe vérifie et envoie depuis votre propre adresse. Emporiqa ne rembourse, n'annule et ne modifie jamais une commande. Ce module synchronise votre catalogue produits et vos pages CMS avec Emporiqa, insère le widget de chat sur votre vitrine et répond aux demandes du chat concernant le panier et le statut des commandes.
 
 [![Widget de chat Emporiqa ouvert sur une boutique, qui répond à la question « Quels casques à réduction de bruit avez-vous pour les longs vols, à moins de 400 euros ? » : il cite le Sennheiser Momentum 4 pour ses 60 h d'autonomie et le Sony WH-1000XM5 pour son ANC adaptatif à 8 microphones, et affiche les deux en fiches produit avec photo, prix et bouton Panier, au-dessus d'un champ de saisie avec un bouton photo et un bouton vocal](docs/images/lead-answer-fr.webp)](https://demo.emporiqa.com)
 
 - **Présentation de l'intégration** : [emporiqa.com/fr/integrations/prestashop/](https://emporiqa.com/fr/integrations/prestashop/)
 - **Documentation complète** : [emporiqa.com/fr/docs/prestashop/](https://emporiqa.com/fr/docs/prestashop/) (référence du format webhook, exemples de hooks, dépannage)
 - **Fonctionnalités** : [emporiqa.com/fr/features/](https://emporiqa.com/fr/features/) · **FAQ** : [emporiqa.com/fr/faq/](https://emporiqa.com/fr/faq/) · **Tarifs** : [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/)
-- **Démo en ligne** : [demo.emporiqa.com](https://demo.emporiqa.com) et une [vidéo de 30 secondes](https://www.youtube.com/watch?v=WtD8HwpIeOs). Cette démo vend de l'électronique, et le comportement est le même sur n'importe quel catalogue.
+- **Démo en ligne** : [demo.emporiqa.com](https://demo.emporiqa.com) et une [vidéo de 30 secondes](https://www.youtube.com/watch?v=WtD8HwpIeOs). Cette démo vend de l'électronique ; sur votre boutique, le chat répond à partir de votre propre catalogue, quoi que vous vendiez. Sur une boutique de cosmétiques, « une crème hydratante sans parfum pour peau sensible » ne fait ressortir que les crèmes que votre catalogue indique sans parfum.
 
 ## Prérequis
 
@@ -21,7 +21,10 @@
 2. Dans votre back office PrestaShop, allez dans **Modules > Gestionnaire de modules > Téléverser un module** et envoyez `emporiqa.zip`.
 3. Cliquez sur **Configurer** sur le module Emporiqa.
 4. Cliquez sur **Se connecter à Emporiqa**. Un nouvel onglet s'ouvre sur emporiqa.com. Créez un compte gratuit (sans carte, 25 $ de crédit à l'inscription) ou connectez-vous si vous en avez déjà un, puis choisissez la boutique à connecter (ou créez-en une nouvelle). Le module est connecté à votre retour.
-5. Dans l'onglet **Synchronisation**, cliquez sur **Envoyer mon catalogue** et gardez l'onglet ouvert jusqu'à ce que la barre de progression soit pleine. Produits, pages et déclinaisons sont envoyés ; le widget apparaît sur votre vitrine dès que le premier produit arrive.
+5. Dans l'onglet **Synchronisation**, cliquez sur **Envoyer mon catalogue** et gardez l'onglet ouvert jusqu'à ce que la barre de progression soit pleine. Produits, pages et déclinaisons sont envoyés.
+6. Une fois la synchronisation terminée, testez le chat dans votre tableau de bord Emporiqa et cliquez sur « Go live » (le tableau de bord est en anglais). Jusque-là, vos clients ne voient rien.
+
+**Configurez-le depuis Claude ou ChatGPT :** connectez l'un ou l'autre à Emporiqa, et il crée votre boutique, règle le chat et vous guide pendant l'installation ([emporiqa.com/docs/ai-assistants/](https://emporiqa.com/docs/ai-assistants/)). Il vous reste à installer le module et à cliquer vous-même sur « Go live ».
 
 **Site en HTTP, ou vous préférez coller les identifiants vous-même ?** Dépliez **Modifier les identifiants manuellement** sur la page Configurer. Collez le **Store ID** et le **Connection Secret** affichés dans votre tableau de bord Emporiqa, sous **Settings → Integration** (le tableau de bord est en anglais). Les deux chemins mènent au même résultat.
 
@@ -218,7 +221,7 @@ public function hookActionEmporiqaCustomerInfo(array $params)
 
 ## Tarifs
 
-Le module est payant sur PrestaShop Addons et gratuit sur [GitHub](https://github.com/emporiqa/prestashop). Le service Emporiqa, lui, est facturé à l'usage : 0 $/mois de base + 0,25 $/conversation, avec 25 $ de crédit à l'ouverture du compte (environ 100 conversations) et aucune carte bancaire demandée à l'inscription. Vous fixez un plafond de dépenses mensuel dans votre espace facturation, et vous pouvez le relever, le baisser ou le supprimer. Le mode vocal (le client pose sa question au micro et entend la réponse lue à voix haute) est en option et désactivé par défaut : une conversation où le client utilise la voix est facturée 0,15 $ de plus, une seule fois, et compte dans ce plafond. Prix hors TVA. Offre Enterprise pour les catalogues de plus de 100 000 produits. Tarifs complets sur [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/).
+Le module est payant sur PrestaShop Addons et gratuit sur [GitHub](https://github.com/emporiqa/prestashop). Le service Emporiqa, lui, est facturé à l'usage : 0,25 $ par conversation et 0,15 $ par réponse e-mail rédigée par l'IA et envoyée par vous, avec 25 $ de crédit offert une seule fois à l'inscription (environ 100 conversations) et aucune carte bancaire demandée. Vous fixez une limite mensuelle dans votre espace facturation (199 $ par défaut pour les nouvelles boutiques) : c'est un plafond, pas un forfait, et vous pouvez le relever, le baisser ou le supprimer. Une fois la limite atteinte, le chat est masqué sur votre boutique et la facturation s'arrête. Aucun frais par utilisateur ; les coûts des modèles d'IA sont inclus. Le mode vocal (le client pose sa question au micro et entend la réponse lue à voix haute) est en option et désactivé par défaut : une conversation où le client utilise la voix est facturée 0,15 $ de plus, une seule fois, et compte dans cette limite. Prix hors TVA. Offre Enterprise pour les catalogues de plus de 100 000 produits. Tarifs complets sur [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/).
 
 ## Problèmes connus
 
@@ -228,7 +231,7 @@ Le module est payant sur PrestaShop Addons et gratuit sur [GitHub](https://githu
 
 ## Support
 
-Écrivez à support@emporiqa.com.
+Écrivez à support@emporiqa.com. Rosen Hristov accompagne lui-même chaque boutique, avant et après la vente.
 
 ## Licence
 

@@ -38,7 +38,7 @@ if (PHP_VERSION_ID >= 80000) {
 class Emporiqa extends Module
 {
     /** Sent as X-Emporiqa-Plugin-Version; keep equal to the $this->version literal (the Addons validator wants a literal there) and config.xml. */
-    public const VERSION = '1.3.4';
+    public const VERSION = '1.3.5';
 
     public const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
 
@@ -128,7 +128,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.3.4';
+        $this->version = '1.3.5';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -147,7 +147,7 @@ class Emporiqa extends Module
         }
 
         $this->displayName = $this->l('Emporiqa');
-        $this->description = $this->l('Adds the Emporiqa AI salesperson to your shop: it answers shoppers, recommends products from your catalog and guides them to checkout.');
+        $this->description = $this->l('Adds the Emporiqa AI shop assistant to your shop: it answers shoppers, recommends products from your catalog and guides them to checkout.');
         $this->confirmUninstall = $this->l('Are you sure you want to uninstall Emporiqa? All configuration will be removed.');
 
         if (!self::isPhpSupported()) {

@@ -3,7 +3,7 @@
 global $_MODULE;
 $_MODULE = [];
 $_MODULE['<{emporiqa}prestashop>emporiqa_9818c04ae9afa1d0d5dbaca5095a949c'] = 'Emporiqa';
-$_MODULE['<{emporiqa}prestashop>emporiqa_a6f8eb7d7dbcb452b7a86a0d2a06516a'] = 'Fügt Ihrem Shop den KI-Verkäufer von Emporiqa hinzu: Er beantwortet die Fragen Ihrer Kunden, empfiehlt Artikel aus Ihrem Katalog und begleitet sie bis zur Kasse.';
+$_MODULE['<{emporiqa}prestashop>emporiqa_d09f721a30c30361d6bdbfbc99dc8051'] = 'Fügt Ihrem Shop den KI-Shop-Assistenten von Emporiqa hinzu: Er beantwortet die Fragen Ihrer Kunden, empfiehlt Artikel aus Ihrem Katalog und begleitet sie bis zur Kasse.';
 $_MODULE['<{emporiqa}prestashop>emporiqa_7f699eb24865a24a3bd1e270e84a42d3'] = 'Möchten Sie Emporiqa wirklich deinstallieren? Alle Einstellungen werden gelöscht.';
 $_MODULE['<{emporiqa}prestashop>emporiqa_68fe12fce50c3686c071d17734f2d9a3'] = 'Emporiqa benötigt PHP 8.0 oder neuer.';
 $_MODULE['<{emporiqa}prestashop>emporiqa_390e6f4cb189bfafbd6b14bdcf612eb5'] = 'Ungültige Store ID.';
@@ -120,7 +120,7 @@ $_MODULE['<{emporiqa}prestashop>sync_tab_b5d097f003a0f3e980d592dbff82513a'] = 'M
 $_MODULE['<{emporiqa}prestashop>sync_tab_cf781686a2bb14c9cdefaa3991fb6b5a'] = 'Senden Sie Ihre Artikel und Seiten an Emporiqa, damit der Chat etwas empfehlen kann. Sie werden in kleinen Paketen gesendet, den Fortschritt zeigt der Balken unten.';
 $_MODULE['<{emporiqa}prestashop>sync_tab_8163669845c1043bb1b4d7c6155ba9f0'] = 'Meinen Katalog senden';
 $_MODULE['<{emporiqa}prestashop>sync_tab_79b8b895c16a6c677f94921f454f1852'] = '%d Einträge zu senden. Das dauert meist nur wenige Minuten.';
-$_MODULE['<{emporiqa}prestashop>sync_tab_0f5834d5b57fb44ed0804967abba896b'] = 'Lassen Sie diesen Browser-Tab geöffnet, bis der Fortschrittsbalken voll ist. Emporiqa schließt die Verarbeitung danach im Hintergrund ab, und der Chat geht online, sobald der erste Artikel bereit ist.';
+$_MODULE['<{emporiqa}prestashop>sync_tab_061d7377139b1b841a08967bcd2cdb8a'] = 'Lassen Sie diesen Browser-Tab geöffnet, bis der Fortschrittsbalken voll ist. Emporiqa schließt die Verarbeitung danach im Hintergrund ab.';
 $_MODULE['<{emporiqa}prestashop>sync_tab_23d32c5b6a5bf62e7ed947779cb80b96'] = 'Dieser Shop ist noch nicht verbunden. Klicken Sie im Tab „Einstellungen“ auf „Mit Emporiqa verbinden“ und kehren Sie dann zum Synchronisieren hierher zurück.';
 $_MODULE['<{emporiqa}prestashop>sync_tab_49ab5aaeb16e40d2787f6cc6532c99a3'] = 'Verbindung testen';
 $_MODULE['<{emporiqa}prestashop>sync_tab_ab0a9ddbe62db1ba014487e6b6d246f0'] = 'Prüft, ob Emporiqa Ihre Store ID und Ihr Connection Secret akzeptiert und ob die Uhr Ihres Servers richtig geht. Dabei wird nichts synchronisiert oder geändert.';

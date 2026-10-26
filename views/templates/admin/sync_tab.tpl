@@ -19,7 +19,7 @@
             </span>
         </p>
         <p class="text-muted small">
-            {l s='Keep this tab open until the progress bar is full. Emporiqa then finishes processing in the background, and the chat goes live as soon as the first product is ready.' mod='emporiqa'}
+            {l s='Keep this tab open until the progress bar is full. Emporiqa then finishes processing in the background.' mod='emporiqa'}
         </p>
     </div>
     {literal}
