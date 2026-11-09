@@ -2,12 +2,13 @@
 
 [Emporiqa](https://emporiqa.com) pour PrestaShop 8.1+ et 9 est un assistant de boutique IA pour la vente et le service client, dans le chat de votre boutique et dans vos e-mails clients. Il travaille aux côtés de votre équipe, qui peut reprendre la main sur n'importe quel chat. Avant l'achat, le client décrit ce qu'il cherche ou envoie une photo, et le chat trouve les produits correspondants dans votre catalogue, les compare et les ajoute au panier. Après l'achat, il répond aux questions à partir de vos pages CMS et indique au client où en est sa commande. Un client connecté voit ses propres prix, tels que votre boutique les calcule, et est salué par son prénom. Le chat répond en 65 langues. E-mails clients : connectez la boîte mail de votre boutique (Gmail, Google Workspace, Microsoft 365, Outlook.com, IONOS, Strato, OVHcloud ou toute boîte IMAP) et Emporiqa rédige chaque réponse à partir de votre catalogue et de vos pages, dans la langue du client. Les détails de commande dans les brouillons, ainsi que les réponses automatiques, sont disponibles avec Gmail, Google Workspace et Microsoft (Outlook.com et Microsoft 365). Les réponses automatiques restent désactivées tant que vous ne les activez pas. Elles ne couvrent que les sujets pour lesquels votre équipe a déjà envoyé de nombreuses fois le brouillon sans le modifier, et chacune reste 10 minutes en attente, le temps que n'importe qui puisse l'arrêter. Toute autre réponse est un brouillon que votre équipe vérifie et envoie depuis votre propre adresse. Emporiqa ne rembourse, n'annule et ne modifie jamais une commande. Ce module synchronise votre catalogue produits et vos pages CMS avec Emporiqa, insère le widget de chat sur votre vitrine et répond aux demandes du chat concernant le panier et le statut des commandes.
 
-[![Widget de chat Emporiqa ouvert sur une boutique, qui répond à la question « Quels casques à réduction de bruit avez-vous pour les longs vols, à moins de 400 euros ? » : il cite le Sennheiser Momentum 4 pour ses 60 h d'autonomie et le Sony WH-1000XM5 pour son ANC adaptatif à 8 microphones, et affiche les deux en fiches produit avec photo, prix et bouton Panier, au-dessus d'un champ de saisie avec un bouton photo et un bouton vocal](docs/images/lead-answer-fr.webp)](https://demo.emporiqa.com)
+[![Le chat Emporiqa sur la boutique de démo répond à la question « Pour les longs vols, quel casque est le mieux : le Sony WH-1000XM5 ou le Sennheiser Momentum 4 ? » : il recommande le Sennheiser Momentum 4 à 379,00 € pour ses 60 h d'autonomie avec ANC, propose de l'ajouter au panier et affiche un tableau comparatif des deux casques avec photo, prix, marque et autonomie, au-dessus d'un champ de saisie avec un bouton photo et un bouton vocal](docs/images/lead-answer-fr.webp)](https://demo.emporiqa.com)
 
 - **Présentation de l'intégration** : [emporiqa.com/fr/integrations/prestashop/](https://emporiqa.com/fr/integrations/prestashop/)
 - **Documentation complète** : [emporiqa.com/fr/docs/prestashop/](https://emporiqa.com/fr/docs/prestashop/) (référence du format webhook, exemples de hooks, dépannage)
 - **Fonctionnalités** : [emporiqa.com/fr/features/](https://emporiqa.com/fr/features/) · **FAQ** : [emporiqa.com/fr/faq/](https://emporiqa.com/fr/faq/) · **Tarifs** : [emporiqa.com/fr/pricing/](https://emporiqa.com/fr/pricing/)
 - **Démo en ligne** : [demo.emporiqa.com](https://demo.emporiqa.com) et une [vidéo de 30 secondes](https://www.youtube.com/watch?v=WtD8HwpIeOs). Cette démo vend de l'électronique ; sur votre boutique, le chat répond à partir de votre propre catalogue, quoi que vous vendiez. Sur une boutique de cosmétiques, « une crème hydratante sans parfum pour peau sensible » ne fait ressortir que les crèmes que votre catalogue indique sans parfum.
+- **Mettez le chat sur vos pages** : copiez depuis la configuration du module un lien de question, un lien qui ouvre le chat ou une page de chat, puis collez-le dans vos pages CMS ou vos descriptions de produits (voir [Configuration](#configuration))
 
 ## Prérequis
 
@@ -17,7 +18,7 @@
 
 ## Installation
 
-1. Téléchargez le module sur [PrestaShop Addons](https://addons.prestashop.com/fr/front-office-features-prestashop-modules/97345-emporiqa-chat-assistant.html) (payant) ou sur [GitHub](https://github.com/emporiqa/prestashop) (gratuit).
+1. Téléchargez le module sur [PrestaShop Addons](https://addons.prestashop.com/fr/support-chat-online/97345-emporiqa-chat-assistant.html) (payant) ou sur [GitHub](https://github.com/emporiqa/prestashop) (gratuit).
 2. Dans votre back office PrestaShop, allez dans **Modules > Gestionnaire de modules > Téléverser un module** et envoyez `emporiqa.zip`.
 3. Cliquez sur **Configurer** sur le module Emporiqa.
 4. Cliquez sur **Se connecter à Emporiqa**. Un nouvel onglet s'ouvre sur emporiqa.com. Créez un compte gratuit (sans carte, 25 $ de crédit à l'inscription) ou connectez-vous si vous en avez déjà un, puis choisissez la boutique à connecter (ou créez-en une nouvelle). Le module est connecté à votre retour.
@@ -57,6 +58,10 @@ La méthode recommandée est **Se connecter à Emporiqa** (échange signé en un
 | Adresse du statut de commande | L'adresse qu'Emporiqa appelle pour la règle Statut de commande. Emporiqa la renseigne lui-même ; ne la copiez que s'il vous la demande | générée automatiquement |
 | Suivi de commande | L'ancienne façon de répondre à « Où est ma commande ? », remplacée par la règle Statut de commande. Il continue de fonctionner pour les boutiques qui l'utilisent déjà, et passe sous **Avancé** comme *Ancien suivi de commande* dès que les règles prêtes à l'emploi s'affichent | Activé |
 
+**Mettez le chat sur vos pages** (section affichée une fois le module connecté, repliée par défaut)
+
+Trois extraits avec un bouton **Copier** : un lien de question (`<a href="#emporiqa=Est-il imperméable ?" class="emporiqa-ask">Est-il imperméable ?</a>`), un lien qui ouvre le chat (`<a href="#emporiqa" class="emporiqa-ask">Discutez avec nous</a>`) et une page de chat (`<div class="emporiqa-inline"></div>`, le chat intégré à la page, et non dans le coin de l'écran). Collez-les dans une page CMS (**Apparence > Pages**) ou une description de produit, dans la vue **Code source** de l'éditeur : PrestaShop conserve ces extraits basés sur des classes et supprime les attributs data-. Un lien de question envoie sa question tout de suite quand votre boutique figure sous **Site lock** dans Emporiqa (**Settings > Security**) ; sinon, la question est préremplie et le client n'a plus qu'à l'envoyer. Le module n'ajoute rien de lui-même à votre boutique. Plus d'options : [emporiqa.com/docs/widget-embedding/#open-from-page](https://emporiqa.com/docs/widget-embedding/#open-from-page) (en anglais).
+
 **Avancé**
 
 | Paramètre | Description | Par défaut |
@@ -74,7 +79,7 @@ Le message d'accueil par défaut indique au client qu'il s'adresse à l'assistan
 
 ## Garder votre catalogue à jour
 
-Le module envoie automatiquement à Emporiqa les modifications de produits, de pages et de commandes, au fil de l'eau, via les hooks PrestaShop. Celles qui ne touchent qu'un produit, promotion ou autre prix spécifique (SpecificPrice), modification d'une règle de prix catalogue, changement d'image ou de déclinaison, déclenchent d'elles-mêmes un nouvel envoi du produit concerné. Une promotion datée est renvoyée quand elle commence et quand elle se termine : les visites de la boutique le vérifient au plus toutes les 15 minutes, jusqu'à 100 produits par visite, du plus ancien changement au plus récent, la visite suivante reprenant la suite. Une règle de prix catalogue qui couvre plus de 100 produits inscrit plutôt au journal une demande de synchronisation manuelle ; un simple changement de stock ou une mise en rupture envoie une mise à jour compacte, limitée à la disponibilité, sans reconstruire le produit entier.
+Le module envoie automatiquement à Emporiqa les modifications de produits, de pages et de commandes, au fil de l'eau, via les hooks PrestaShop. Celles qui ne touchent qu'un produit, promotion ou autre prix spécifique (SpecificPrice), modification d'une règle de prix catalogue, changement d'image ou de déclinaison, déclenchent d'elles-mêmes un nouvel envoi du produit concerné. Une promotion datée est renvoyée quand elle commence et quand elle se termine : les visites de la boutique le vérifient au plus toutes les 15 minutes, jusqu'à 100 produits par visite, du plus ancien changement au plus récent, la visite suivante reprenant la suite. Une règle de prix catalogue qui couvre plus de 100 produits inscrit à la place une demande de synchronisation manuelle dans le journal ; un simple changement de stock ou une mise en rupture envoie une mise à jour compacte, limitée à la disponibilité, sans reconstruire le produit entier.
 
 Certains changements touchent l'ensemble du catalogue (renommage de catégories ou de marques, rafraîchissement des taux de change, modification de taux de TVA ou de groupes de règles de TVA, modification de règles panier, nouvelle langue activée). Relancer depuis ces hooks une synchronisation produit par produit, de façon synchrone, bloquerait la requête admin ; le module se contente donc d'enregistrer un avertissement dans **Paramètres avancés → Journaux** et laisse le rafraîchissement du catalogue à un lancement manuel.
 
@@ -226,7 +231,7 @@ Le module est payant sur PrestaShop Addons et gratuit sur [GitHub](https://githu
 ## Problèmes connus
 
 - Les messages affichés par les boutons de **Synchronisation** et **Tester la connexion**, ainsi que les erreurs de la connexion en un clic, sont uniquement en anglais. Le reste de la page de configuration est disponible en français et en anglais.
-- Les contrôleurs de `controllers/` et `emporiqa.php` gardent une syntaxe PHP 7 (pas de virgule finale dans les appels ou les paramètres), afin qu'une boutique restée en PHP 7 obtienne une erreur propre plutôt qu'une erreur fatale ; le code PHP 8 se trouve dans `classes/`.
+- Les contrôleurs de `controllers/` et `emporiqa.php` gardent une syntaxe PHP 7 (pas de virgule finale dans les appels ou les paramètres), afin qu'une boutique restée en PHP 7 obtienne une erreur propre au lieu d'une erreur fatale ; le code PHP 8 se trouve dans `classes/`.
 - La liste complète, avec le détail technique, se trouve dans [CHANGELOG.md](CHANGELOG.md) (en anglais).
 
 ## Support

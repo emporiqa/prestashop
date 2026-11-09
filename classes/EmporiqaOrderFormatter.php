@@ -201,7 +201,7 @@ class EmporiqaOrderFormatter
         // another state change", and Order::setDelivery calls it "keep it for
         // backward compatibility, to remove on 1.6 version".
         //
-        // The consumer is an AI salesperson that reads fields to shoppers by
+        // The consumer is an AI shop assistant that reads fields to shoppers by
         // name, so a key called `delivery_date` carrying a picking timestamp
         // would be recited as a delivery promise. A merchant with a REAL
         // estimated delivery date should add it through the

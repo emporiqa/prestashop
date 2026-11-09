@@ -2,7 +2,7 @@
 /**
  * Emporiqa
  *
- * Integrates PrestaShop with Emporiqa chat assistant.
+ * Integrates PrestaShop with Emporiqa, the AI shop assistant.
  *
  * @author    Emporiqa
  * @copyright Emporiqa
@@ -38,7 +38,7 @@ if (PHP_VERSION_ID >= 80000) {
 class Emporiqa extends Module
 {
     /** Sent as X-Emporiqa-Plugin-Version; keep equal to the $this->version literal (the Addons validator wants a literal there) and config.xml. */
-    public const VERSION = '1.3.5';
+    public const VERSION = '1.4.0';
 
     public const DEFAULT_WEBHOOK_URL = 'https://emporiqa.com/webhooks/sync/';
 
@@ -128,7 +128,7 @@ class Emporiqa extends Module
         $this->name = 'emporiqa';
         $this->module_key = '19a6bf09ba552447feda82c897be7296';
         $this->tab = 'front_office_features';
-        $this->version = '1.3.5';
+        $this->version = '1.4.0';
         $this->author = 'Emporiqa';
         $this->need_instance = 0;
         $this->ps_versions_compliancy = ['min' => '8.1.0', 'max' => '9.99.99'];
@@ -735,6 +735,7 @@ class Emporiqa extends Module
             'emporiqa_connect_last_error' => (string) preg_replace('/^[a-z0-9_]+: /', '', (string) $lastError),
             'emporiqa_just_connected' => $justConnected,
             'emporiqa_https_enabled' => (bool) Configuration::get('PS_SSL_ENABLED'),
+            'emporiqa_page_snippets' => $this->pageSnippets(),
         ]);
 
         $this->context->controller->addCSS($this->_path . 'views/css/admin.css?v=' . $this->assetVersion('views/css/admin.css'));
@@ -742,6 +743,25 @@ class Emporiqa extends Module
         Media::addJsDef(['emporiqaI18n' => $this->getAdminJsStrings()]);
 
         return $this->context->smarty->fetch($this->local_path . 'views/templates/admin/configure.tpl');
+    }
+
+    /**
+     * The markup a merchant pastes into a CMS page or product description to
+     * open the chat from it. Class forms, because PrestaShop's editor strips
+     * data- attributes.
+     *
+     * @return array<string, string>
+     */
+    private function pageSnippets()
+    {
+        $question = htmlspecialchars($this->l('Is it waterproof?'), ENT_QUOTES, 'UTF-8');
+        $chatWithUs = htmlspecialchars($this->l('Chat with us'), ENT_QUOTES, 'UTF-8');
+
+        return [
+            'question' => '<a href="#emporiqa=' . $question . '" class="emporiqa-ask">' . $question . '</a>',
+            'open' => '<a href="#emporiqa" class="emporiqa-ask">' . $chatWithUs . '</a>',
+            'chat_page' => '<div class="emporiqa-inline"></div>',
+        ];
     }
 
     /**
@@ -932,7 +952,6 @@ class Emporiqa extends Module
 
         $widgetUrl = $this->getPlatformBaseUrl('https') . '/chat/embed/?' . http_build_query($queryParams);
 
-        $cartToken = $this->getCartApiToken();
         $cartApiUrl = $this->context->link->getModuleLink('emporiqa', 'cartapi');
         $checkoutUrl = $this->context->link->getPageLink('order');
 
@@ -942,7 +961,11 @@ class Emporiqa extends Module
         Media::addJsDef([
             'emporiqa_cart_config' => [
                 'ajax_url' => $cartApiUrl,
-                'token' => $cartToken,
+                // No cart token in the page either: a full-page cache would
+                // serve one visitor's token to everyone. The cart API answers
+                // the empty token with this visitor's own, and
+                // front-cart-handler.js retries with it.
+                'token' => '',
                 'checkout_url' => $checkoutUrl,
             ],
             'emporiqa_token_config' => [

@@ -224,6 +224,55 @@
             </div>
             {/if}
 
+            {if $emporiqa_connect_state == 'connected'}
+            <div class="emporiqa-collapsible-section emporiqa-section-closed" id="emporiqa-section-page-chat">
+                <div class="emporiqa-section-header" tabindex="0" role="button" aria-expanded="false">
+                    <span class="emporiqa-section-toggle"></span>
+                    <i class="icon-comments"></i> {l s='Put the chat on your pages' mod='emporiqa'}
+                </div>
+                <div class="emporiqa-section-body">
+                    <p>{l s='Links and a chat page that you paste into your pages open your AI shop assistant. A question link sends its question with one click.' mod='emporiqa'}</p>
+                    <div class="form-group">
+                        <label>{l s='Question link' mod='emporiqa'}</label>
+                        <div class="emporiqa-copy-row">
+                            <input type="text" value="{$emporiqa_page_snippets.question|escape:'htmlall':'UTF-8'}" class="form-control emporiqa-url-field" readonly />
+                            <button type="button" class="btn btn-default emporiqa-copy-btn" data-url="{$emporiqa_page_snippets.question|escape:'htmlall':'UTF-8'}">
+                                <i class="icon-copy"></i> {l s='Copy' mod='emporiqa'}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>{l s='Link that opens the chat' mod='emporiqa'}</label>
+                        <div class="emporiqa-copy-row">
+                            <input type="text" value="{$emporiqa_page_snippets.open|escape:'htmlall':'UTF-8'}" class="form-control emporiqa-url-field" readonly />
+                            <button type="button" class="btn btn-default emporiqa-copy-btn" data-url="{$emporiqa_page_snippets.open|escape:'htmlall':'UTF-8'}">
+                                <i class="icon-copy"></i> {l s='Copy' mod='emporiqa'}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>{l s='Chat page: the chat shows inside the page instead of in the corner' mod='emporiqa'}</label>
+                        <div class="emporiqa-copy-row">
+                            <input type="text" value="{$emporiqa_page_snippets.chat_page|escape:'htmlall':'UTF-8'}" class="form-control emporiqa-url-field" readonly />
+                            <button type="button" class="btn btn-default emporiqa-copy-btn" data-url="{$emporiqa_page_snippets.chat_page|escape:'htmlall':'UTF-8'}">
+                                <i class="icon-copy"></i> {l s='Copy' mod='emporiqa'}
+                            </button>
+                        </div>
+                    </div>
+                    <p><strong>{l s='Where to paste it:' mod='emporiqa'}</strong> {l s='a CMS page (Design > Pages) or a product description, in the Source code view of the editor. Both keep these links and the chat page.' mod='emporiqa'}</p>
+                    <p>
+                        {l s='Questions are sent straight away once your shop is listed under Site lock in Emporiqa (Settings > Security); otherwise they are filled in for the shopper to send.' mod='emporiqa'}
+                        <a href="{$emporiqa_platform_base_url|escape:'htmlall':'UTF-8'}/platform/store-settings/?tab=security#allowed-domains" target="_blank" rel="noopener noreferrer">
+                            <i class="icon-external-link"></i> {l s='Open in Emporiqa' mod='emporiqa'}</a>
+                    </p>
+                    <p>
+                        <a href="https://emporiqa.com/docs/widget-embedding/#open-from-page" target="_blank" rel="noopener noreferrer">
+                            <i class="icon-book"></i> {l s='More options' mod='emporiqa'}</a>
+                    </p>
+                </div>
+            </div>
+            {/if}
+
             {* --- Advanced --- *}
             <div class="emporiqa-collapsible-section emporiqa-section-closed" id="emporiqa-section-advanced">
                 <div class="emporiqa-section-header" tabindex="0" role="button" aria-expanded="false">

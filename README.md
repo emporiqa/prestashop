@@ -2,12 +2,13 @@
 
 [Emporiqa](https://emporiqa.com) for PrestaShop 8.1+ and 9 is an AI shop assistant for sales and support, in the chat on your shop and in your shop's customer emails, working with your team: a person can take over any chat. Before the purchase, shoppers describe what they need or upload a photo, and it finds matching products from your catalog, compares them and adds them to the cart. After it, it answers questions from your CMS pages and tells customers where their order is. A signed-in customer sees their own prices, as your shop calculates them, and is greeted by name. It answers in 65 languages. Customer emails: connect your shop's mailbox (Gmail, Google Workspace, Microsoft 365, Outlook.com, IONOS, Strato, OVHcloud or any IMAP mailbox) and Emporiqa drafts each reply from your catalog and pages, in the customer's language. Order details in drafts, and automatic replies, work on Gmail, Google Workspace and Microsoft (Outlook.com and Microsoft 365). Automatic replies are off until you switch them on. They cover only topics your team has already answered many times without changing the draft, and each waits 10 minutes so anyone can stop it. Every other reply is a draft your team checks and sends from your own address. Emporiqa never refunds, cancels or changes an order. This module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and answers the chat's cart and order status requests.
 
-[![Emporiqa chat widget open on a storefront, answering which noise cancelling headphones under 400 euros suit long flights: it names the Sennheiser Momentum 4 for up to 60 hours with ANC and the Sony WH-1000XM5 at 250 g, and shows both as product cards with photo, price and a Cart button, above a message box with a photo button and a voice button](docs/images/lead-answer.webp)](https://demo.emporiqa.com)
+[![Emporiqa chat on the demo store, answering which headphones are better for long flights, the Sony WH-1000XM5 or the Sennheiser Momentum 4: it picks the Sennheiser for its 60-hour ANC battery, offers to add it to the cart, and shows a comparison table of both with photo, price, brand and battery, above a message box with a photo button and a voice button](docs/images/lead-answer.webp)](https://demo.emporiqa.com)
 
 - **Integration overview**: [emporiqa.com/integrations/prestashop/](https://emporiqa.com/integrations/prestashop/)
 - **Full documentation**: [emporiqa.com/docs/prestashop/](https://emporiqa.com/docs/prestashop/) (webhook format reference, hook examples, troubleshooting)
 - **Features**: [emporiqa.com/features/](https://emporiqa.com/features/) · **FAQ**: [emporiqa.com/faq/](https://emporiqa.com/faq/) · **Pricing**: [emporiqa.com/pricing/](https://emporiqa.com/pricing/)
 - **Live demo**: [demo.emporiqa.com](https://demo.emporiqa.com) and a [30-second video](https://www.youtube.com/watch?v=y7ARSIUxuXI). That demo sells electronics; on your shop it answers from your own catalog, whatever you sell. On a cosmetics shop, "a fragrance-free moisturiser for sensitive skin" brings back only the creams your catalog lists as fragrance-free.
+- **Put the chat on your pages**: copy a question link, a chat link or a chat page from the module configuration into your CMS pages and product descriptions (see [Configuration](#configuration))
 
 ## Requirements
 
@@ -17,7 +18,7 @@
 
 ## Installation
 
-1. Get the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/en/front-office-features-prestashop-modules/97345-emporiqa-chat-assistant.html) (paid) or from [GitHub](https://github.com/emporiqa/prestashop) (free).
+1. Get the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/en/support-online-chat/97345-emporiqa-chat-assistant.html) (paid) or from [GitHub](https://github.com/emporiqa/prestashop) (free).
 2. In your PrestaShop back office, go to **Modules > Module Manager > Upload a Module** and upload `emporiqa.zip`.
 3. Click **Configure** on the Emporiqa module.
 4. Click **Connect to Emporiqa**. A new tab opens on emporiqa.com. Create a free account (no card required, $25 of signup credit) or sign in if you already have one, then pick the store you want to connect (or create a new one). The module is connected when you return.
@@ -56,6 +57,10 @@ The recommended path is **Connect to Emporiqa** (one-click handshake, no credent
 |---------|-------------|---------|
 | Order status address | The address Emporiqa calls for the Order status rule. Emporiqa fills it in by itself; copy it only if Emporiqa asks for it | auto-generated |
 | Order tracking | The older way to answer "Where is my order?", replaced by the Order status rule. It keeps working for shops that already use it, and sits under **Advanced** as *Old order tracking* once ready-made rules show | On |
+
+**Put the chat on your pages** (shown once the module is connected, folded by default)
+
+Three snippets with a **Copy** button: a question link (`<a href="#emporiqa=Is it waterproof?" class="emporiqa-ask">Is it waterproof?</a>`), a link that opens the chat (`<a href="#emporiqa" class="emporiqa-ask">Chat with us</a>`) and a chat page (`<div class="emporiqa-inline"></div>`, the chat inside the page instead of in the corner). Paste them into a CMS page (**Design > Pages**) or a product description, in the editor's **Source code** view: PrestaShop keeps these class-based snippets and removes data- attributes. A question link sends its question at once when your shop is listed under **Site lock** in Emporiqa (**Settings > Security**); otherwise it fills the question in for the shopper to send. The module adds nothing to your storefront by itself. More options: [emporiqa.com/docs/widget-embedding/#open-from-page](https://emporiqa.com/docs/widget-embedding/#open-from-page).
 
 **Advanced**
 

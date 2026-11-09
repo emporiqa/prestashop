@@ -589,16 +589,21 @@
             });
         }
 
-        // Copy buttons (order tracking and Order status addresses)
+        // Copy buttons (addresses and the page snippets)
         document.querySelectorAll('.emporiqa-copy-btn').forEach(function (copyBtn) {
+            var label = Array.prototype.slice.call(copyBtn.childNodes);
+            var restoreTimer;
             copyBtn.addEventListener('click', function () {
                 var url = this.dataset.url || '';
                 if (!url) return;
                 var showCopied = function () {
-                    var originalText = copyBtn.textContent;
                     copyBtn.textContent = t('copied');
-                    setTimeout(function () {
-                        copyBtn.textContent = originalText;
+                    clearTimeout(restoreTimer);
+                    restoreTimer = setTimeout(function () {
+                        copyBtn.textContent = '';
+                        label.forEach(function (node) {
+                            copyBtn.appendChild(node);
+                        });
                     }, 2000);
                 };
                 if (navigator.clipboard && navigator.clipboard.writeText) {

@@ -10,6 +10,29 @@ changelog, which left 1.2.5 through 1.2.8 with no recorded rationale even though
 the work was real. Upgrade scripts exist for 1.2.0, 1.2.3, 1.2.4, 1.3.0,
 1.3.1 and 1.3.3 only; the other releases need no data migration.
 
+## [1.4.0] - 2026-11-09
+
+For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.
+
+### Added
+- Settings tab: a new section, Put the chat on your pages (folded, shown
+  once the module is connected). It gives three snippets to copy into a CMS
+  page or a product description: a question link, a link that opens the
+  chat, and a chat page that shows the chat inside the page instead of in
+  the corner. PrestaShop's editor keeps them working. A question link
+  sends its question with one click once your shop is listed under Site
+  lock in Emporiqa (Settings > Security); otherwise it fills the question
+  in. The module adds nothing to your storefront by itself.
+
+### Fixed
+- The storefront page no longer contains the per-shopper key that lets
+  the chat fill a cart, so a page cached by a page-cache module (JPresta
+  Page Cache, LiteSpeed, Varnish and the like) holds no cart key from
+  this module. Each shopper gets their own key the first time the chat uses their
+  cart, with no extra step and no error shown.
+
+No upgrade script; nothing is migrated.
+
 ## [1.3.5] - 2026-10-26
 
 For PrestaShop 8.1 to 9.2. Needs PHP 8.0 or newer.

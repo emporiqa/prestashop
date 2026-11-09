@@ -1,6 +1,6 @@
 /**
- * Locks in views/js/front-cart-handler.js on a page that holds a cart token
- * that is not the visitor's (a page served from a full-page cache).
+ * Locks in views/js/front-cart-handler.js on a page that holds no cart token
+ * (1.4.0+) or one that is not the visitor's (cached by an older version).
  *
  * What must never regress: an `invalid_token` refusal that carries a token
  * is retried once with that token, and the token is kept for the next
@@ -45,12 +45,12 @@ const OK = { success: true, cart: { items: [], item_count: 0, total: 0, currency
 const REFUSED = { success: false, error: 'Security check failed.', code: 'invalid_token', token: 'fresh-token' };
 
 // answer(fields) returns the JSON body for one request.
-function load(answer) {
+function load(answer, token = 'cached-token', locks = null) {
     const sent = [];
     let inFlight = 0;
     let maxInFlight = 0;
     const win = {
-        emporiqa_cart_config: { ajax_url: 'https://shop.test/module/emporiqa/cartapi', token: 'cached-token', checkout_url: '/order' },
+        emporiqa_cart_config: { ajax_url: 'https://shop.test/module/emporiqa/cartapi', token, checkout_url: '/order' },
         fetch(url, options) {
             const fields = options.body.fields;
             sent.push(fields);
@@ -64,6 +64,9 @@ function load(answer) {
         },
     };
     win.window = win;
+    if (locks) {
+        win.navigator = { locks };
+    }
     const context = vm.createContext(Object.assign(win, { FormData: FakeFormData, Promise, setTimeout, Object }));
     vm.runInContext(SOURCE, context);
     return { win, sent, maxInFlight: () => maxInFlight };
@@ -79,6 +82,12 @@ function load(answer) {
     res = await page.win.EmporiqaCartHandler({ action: 'view', items: null });
     check('the next request sends the fresh token at once', res.success === true && page.sent.length === 3 && page.sent[2].token === 'fresh-token');
 
+    console.log('A page with no token (1.4.0 renders none)');
+    page = load((fields) => (fields.token === 'fresh-token' ? OK : REFUSED), '');
+    res = await page.win.EmporiqaCartHandler({ action: 'add', items: [{ product_id: 'product-7', quantity: 1 }] });
+    check('the first add succeeds', res.success === true);
+    check('sent empty, then with the visitor\'s own token', page.sent.length === 2 && page.sent[0].token === '' && page.sent[1].token === 'fresh-token');
+
     console.log('Two requests at once on a cached page');
     page = load((fields) => (fields.token === 'fresh-token' ? OK : REFUSED));
     const both = await Promise.all([
@@ -88,6 +97,27 @@ function load(answer) {
     check('both succeed', both[0].success && both[1].success);
     check('one at a time', page.maxInFlight() === 1);
     check('only the first is refused', page.sent.length === 3 && page.sent[2].token === 'fresh-token');
+
+    console.log('Two tabs at once (Web Locks shared between them)');
+    let tail = Promise.resolve();
+    const lockNames = [];
+    const locks = {
+        request(name, callback) {
+            lockNames.push(name);
+            const held = tail.then(callback);
+            tail = held.catch(() => {});
+            return held;
+        },
+    };
+    const order = [];
+    const tab = (label) => load((fields) => {
+        order.push(label + (fields.token === '' ? ':empty' : ':token'));
+        return fields.token === '' ? REFUSED : OK;
+    }, '', locks);
+    const tabs = await Promise.all([tab('a'), tab('b')].map((t) => t.win.EmporiqaCartHandler({ action: 'add', items: [{ product_id: 'product-7', quantity: 1 }] })));
+    check('both succeed', tabs[0].success && tabs[1].success);
+    check('each finishes its retry before the other starts', order.join() === 'a:empty,a:token,b:empty,b:token');
+    check('both take the same lock', lockNames.length === 2 && lockNames[0] === lockNames[1]);
 
     console.log('A refusal without a token');
     page = load(() => ({ success: false, error: 'Security check failed.', code: 'invalid_token' }));

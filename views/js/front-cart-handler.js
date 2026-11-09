@@ -67,18 +67,28 @@
     // leave the page holding the token of the cookie that lost.
     var queue = Promise.resolve();
 
+    // The same applies across tabs, and two tabs creating a visitor's first
+    // cart at once would lose an item. Web Locks needs HTTPS or localhost;
+    // without it a tab can only queue its own requests.
+    function acrossTabs(run) {
+        var locks = window.navigator && window.navigator.locks;
+        return locks ? locks.request('emporiqa-cart', run) : run();
+    }
+
     function emporiqaAjax(action, data) {
         var run = function () {
-            return send(action, data, false);
+            return acrossTabs(function () {
+                return send(action, data, false);
+            });
         };
         var result = queue.then(run, run);
         queue = result.catch(function () {});
         return result;
     }
 
-    // A page from a full-page cache holds the token of whoever it was
-    // rendered for. The refusal changed nothing and carries this visitor's
-    // own token, so it is retried once with it.
+    // The page holds no token (a full-page cache would share it), so the
+    // first request is refused with this visitor's own token and retried
+    // once with it.
     function send(action, data, retried) {
         var formData = new FormData();
         formData.append('action', action);

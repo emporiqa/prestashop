@@ -7,7 +7,9 @@
  * visitor's own token, so views/js/front-cart-handler.js can retry once. A
  * page from a full-page cache holds the token of whoever it was rendered
  * for, and without this every other visitor's add to cart from the chat
- * fails. A valid token goes through with no refusal fields.
+ * fails. A valid token goes through with no refusal fields. The storefront
+ * page renders no token at all, so a visitor's first cart call takes this
+ * path and gets its own token.
  *
  * Self-contained (no PHPUnit, no PrestaShop). EmporiqaJsonResponse is a stub
  * that records the answer and throws instead of exiting.
@@ -163,6 +165,14 @@ echo "No token at all\n";
 check('is refused with a fresh token too', ($body['code'] ?? null) === 'invalid_token' && ($body['token'] ?? null) === 'visitor-own-token');
 check('changes nothing', EmporiqaCartHandler::$called === []);
 
+echo "The first cart call of a new visitor (empty token, no nonce yet)\n";
+$module = new Emporiqa();
+[$status, $body] = call(['action' => 'add', 'token' => '', 'product_id' => '7'], $module);
+check('is refused before the cart', EmporiqaCartHandler::$called === [] && ($body['code'] ?? null) === 'invalid_token');
+check('mints this visitor\'s token in the refusal', $module->calls === [true] && ($body['token'] ?? null) === 'visitor-own-token');
+[$status, $body] = call(['action' => 'add', 'token' => $body['token'], 'product_id' => '7'], $module);
+check('the retry with it goes through', $body['success'] === true && EmporiqaCartHandler::$called === ['add']);
+
 echo "No nonce in the cookie yet (cached page, first request)\n";
 $module = new Emporiqa();
 $module->token = '';
@@ -189,6 +199,11 @@ try {
 } catch (Sent $e) {
 }
 check('is 405 and hands out no token', EmporiqaJsonResponse::$sent[0] === 405 && !isset(EmporiqaJsonResponse::$sent[1]['token']));
+
+echo "The storefront page\n";
+$source = (string) file_get_contents(__DIR__ . '/../emporiqa.php');
+preg_match('/function hookDisplayHeader\(.*?\n    }\n/s', $source, $header);
+check('renders no cart token (a full-page cache would share it)', isset($header[0]) && strpos($header[0], 'getCartApiToken') === false && strpos($header[0], "'token' => ''") !== false);
 
 if ($failures) {
     echo "\n$failures check(s) FAILED\n";

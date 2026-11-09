@@ -116,8 +116,8 @@ class EmporiqaCartApiEndpoint
         }
 
         // Per-visitor token bound to a nonce in the encrypted PS cookie.
-        // No nonce means the widget never rendered for this visitor (or
-        // cookies are blocked): fail closed rather than minting one.
+        // No nonce yet (this visitor's first cart call, or cookies are
+        // blocked): fail closed here; the refusal mints one.
         $expected = $this->module->getCartApiToken(false);
 
         return $expected !== '' && hash_equals($expected, $token);
@@ -126,10 +126,11 @@ class EmporiqaCartApiEndpoint
     /**
      * A refused token, with this visitor's own token for one retry.
      *
-     * A page served from a full-page cache carries the token of the visitor
-     * it was rendered for, so every other visitor is refused. The refusal
+     * The page carries no token (a full-page cache would share it), so a
+     * visitor's first cart call is refused and gets its own token here, as
+     * does a page cached by a version that still rendered one. The refusal
      * changed nothing, and only a same-origin script can read this answer
-     * (no CORS, SameSite cookie), as with a token rendered into the page.
+     * (no CORS, SameSite cookie).
      */
     private function tokenRefusal(): array
     {
