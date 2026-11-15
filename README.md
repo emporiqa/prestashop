@@ -1,35 +1,37 @@
 # Emporiqa: AI Chatbot for PrestaShop
 
-[Emporiqa](https://emporiqa.com) for PrestaShop 8.1+ and 9 is an AI shop assistant for sales and support, in the chat on your shop and in your shop's customer emails, working with your team: a person can take over any chat. Before the purchase, shoppers describe what they need or upload a photo, and it finds matching products from your catalog, compares them and adds them to the cart. After it, it answers questions from your CMS pages and tells customers where their order is. A signed-in customer sees their own prices, as your shop calculates them, and is greeted by name. It answers in 65 languages. Customer emails: connect your shop's mailbox (Gmail, Google Workspace, Microsoft 365, Outlook.com, IONOS, Strato, OVHcloud or any IMAP mailbox) and Emporiqa drafts each reply from your catalog and pages, in the customer's language. Order details in drafts, and automatic replies, work on Gmail, Google Workspace and Microsoft (Outlook.com and Microsoft 365). Automatic replies are off until you switch them on. They cover only topics your team has already answered many times without changing the draft, and each waits 10 minutes so anyone can stop it. Every other reply is a draft your team checks and sends from your own address. Emporiqa never refunds, cancels or changes an order. This module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and answers the chat's cart and order status requests.
+[Emporiqa](https://emporiqa.com) for PrestaShop 8.1+ and 9 is an AI shop assistant for sales and support, in the chat on your shop and in your shop's customer emails, working with your team: a person can take over any chat, and your team answers chats and customer emails from your Emporiqa dashboard, where the team inbox and every team member are included. Before the purchase, shoppers describe what they need or upload a photo, and it finds matching products from your catalog, compares them and adds them to the cart. After it, it answers questions from your CMS pages and tells customers where their order is. A signed-in customer sees their own prices, as your shop calculates them, and is greeted by name. It answers in 65 languages. Customer emails: connect your shop's mailbox (Gmail, Google Workspace, Microsoft 365, Outlook.com, IONOS, Strato, OVHcloud or any IMAP mailbox) and Emporiqa drafts each reply from your catalog and pages, in the customer's language. Order details in drafts, and automatic replies, work on Gmail, Google Workspace and Microsoft (Outlook.com and Microsoft 365). Automatic replies are off until you switch them on. They cover only topics your team has already answered many times without changing the draft, and each waits 10 minutes so anyone can stop it. Every other reply is a draft your team checks and sends from your own address. Emporiqa never refunds, cancels or changes an order. This module syncs your product catalog and CMS pages to Emporiqa, embeds the chat widget on your storefront, and answers the chat's cart and order status requests.
 
 [![Emporiqa chat on the demo store, answering which headphones are better for long flights, the Sony WH-1000XM5 or the Sennheiser Momentum 4: it picks the Sennheiser for its 60-hour ANC battery, offers to add it to the cart, and shows a comparison table of both with photo, price, brand and battery, above a message box with a photo button and a voice button](docs/images/lead-answer.webp)](https://demo.emporiqa.com)
 
 - **Integration overview**: [emporiqa.com/integrations/prestashop/](https://emporiqa.com/integrations/prestashop/)
 - **Full documentation**: [emporiqa.com/docs/prestashop/](https://emporiqa.com/docs/prestashop/) (webhook format reference, hook examples, troubleshooting)
-- **Features**: [emporiqa.com/features/](https://emporiqa.com/features/) · **FAQ**: [emporiqa.com/faq/](https://emporiqa.com/faq/) · **Pricing**: [emporiqa.com/pricing/](https://emporiqa.com/pricing/)
-- **Live demo**: [demo.emporiqa.com](https://demo.emporiqa.com) and a [30-second video](https://www.youtube.com/watch?v=y7ARSIUxuXI). That demo sells electronics; on your shop it answers from your own catalog, whatever you sell. On a cosmetics shop, "a fragrance-free moisturiser for sensitive skin" brings back only the creams your catalog lists as fragrance-free.
+- **Features**: [emporiqa.com/features/](https://emporiqa.com/features/) · **FAQ**: [emporiqa.com/faq/](https://emporiqa.com/faq/) · **Pricing**: [emporiqa.com/pricing/](https://emporiqa.com/pricing/?utm_source=prestashop&utm_medium=readme)
+- **Live demo**: [demo.emporiqa.com](https://demo.emporiqa.com) and the [product tour, with chapters](https://emporiqa.com/tour/?utm_source=prestashop&utm_medium=readme). That demo sells electronics; on your shop it answers from your own catalog, whatever you sell. On a cosmetics shop, "a fragrance-free moisturiser for sensitive skin" brings back only the creams your catalog lists as fragrance-free.
 - **Put the chat on your pages**: copy a question link, a chat link or a chat page from the module configuration into your CMS pages and product descriptions (see [Configuration](#configuration))
 
 ## Requirements
 
 - PrestaShop 8.1+ or 9.x (tested on 8.1 to 9.2)
 - PHP 8.0+ on PrestaShop 8.1, PHP 8.1+ on PrestaShop 9. PrestaShop 8.1 also runs on PHP 7.x; this module does not
-- An [Emporiqa account](https://emporiqa.com/platform/create-store/). Sign up with no card; $25 of signup credit (~100 free conversations) auto-applied
+- An [Emporiqa account](https://emporiqa.com/platform/create-store/), a paid service (see [Pricing](#pricing)). Every store starts with free credit, and no card is needed to sign up
 
 ## Installation
 
 1. Get the module from the [PrestaShop Addons Marketplace](https://addons.prestashop.com/en/support-online-chat/97345-emporiqa-chat-assistant.html) (paid) or from [GitHub](https://github.com/emporiqa/prestashop) (free).
 2. In your PrestaShop back office, go to **Modules > Module Manager > Upload a Module** and upload `emporiqa.zip`.
 3. Click **Configure** on the Emporiqa module.
-4. Click **Connect to Emporiqa**. A new tab opens on emporiqa.com. Create a free account (no card required, $25 of signup credit) or sign in if you already have one, then pick the store you want to connect (or create a new one). The module is connected when you return.
-5. On the **Sync** tab, click **Send my catalog** and keep the tab open until the progress bar is full. Products, pages, and combinations flow through.
+4. Click **Connect to Emporiqa**. A new tab opens on emporiqa.com. Create a free account (no card required, free credit to start) or sign in if you already have one, then pick the store you want to connect (or create a new one). The module is connected when you return.
+5. On the **Sync** tab, click **Send my catalog** and keep the tab open until the progress bar is full. The module sends your products, combinations and pages.
 6. When the sync is done, test the chat in your Emporiqa dashboard and press **Go live**. Shoppers see nothing until you do.
 
 **Set it up from Claude or ChatGPT:** connect your assistant and it creates your store, sets up the chat and walks you through the install ([emporiqa.com/docs/ai-assistants/](https://emporiqa.com/docs/ai-assistants/)). You install the module and press Go live yourself.
 
-**On HTTP, or prefer to paste credentials yourself?** Expand **Edit credentials manually** on the Configure page. Paste a **Store ID** and **Connection Secret** from your Emporiqa dashboard under **Settings → Integration**. Both flows reach the same place.
+**On HTTP, or prefer to paste credentials yourself?** Expand **Edit credentials manually** on the Configure page. Paste a **Store ID** and **Connection Secret** from your Emporiqa dashboard under **Settings → Integration**. Both ways connect the module.
 
 **Order status in the chat.** Once connected, the Configure page shows a **Ready-made rules** section. Click **Open in Emporiqa** next to **Order status**, then in Emporiqa click **Try it** to test the rule and **Go live** to switch it on. You do not need to copy anything: Emporiqa fills in your shop's address by itself when you connect in one click. If it ever asks for the address, the **Order status address** field in the same section shows the one to use, with a **Copy** button. The rule answers "Where is my order?" from your PrestaShop orders: a shopper signed in to your shop only gives the order reference, and a guest also gives the order's email. Once the order is proven, the chat can tell the shopper everything their order page shows: status, tracking, the items with their prices, the totals, payment, carrier and delivery time, and the delivery and invoice addresses. When the shopper is signed in, Emporiqa can also ask your shop who they are: the name and email on their account and their 10 newest orders (number, date, status, total) in the shops you sync, so the chat can answer "Where is my order?" with their latest order without asking for a number, and fill in their email in your rules. Only the signed-in shopper's own account and orders are sent, never another customer's, a guest order or an address. The other ready-made rules in Emporiqa (**Settings > Rules**) pass returns, cancellations, order changes, quotes and invoice requests to your team by email. If you connected with manual credentials and the section does not show yet, click **Test Connection** on the Sync tab. Shops that already set up the older order tracking address keep it working as before; once Order status is on, the note under **Advanced** tells you how to switch the old one off.
+
+**Your team's inbox.** Your team answers chats and customer emails in your Emporiqa dashboard, with unlimited team members and no seat fees. Anyone on the team can take over a chat, transfer it to a colleague, reply with saved replies and hand it back to the AI with a note only the team sees. Each chat that needs someone carries a label with the reason, such as a refund, a complaint or a question the chat could not answer. Mine lists the chats you hold, and New reply marks the ones where the shopper wrote back. If nobody picks up a live request within a few minutes (you choose how many, or switch it off), the chat tells the shopper and answers again, and the request waits for your team's follow-up. Alerts reach you by email, Slack, Microsoft Teams, Discord or Google Chat. There is nothing to set up in PrestaShop.
 
 ## Configuration
 
@@ -71,7 +73,7 @@ Three snippets with a **Copy** button: a question link (`<a href="#emporiqa=Is i
 | Webhook URL | Emporiqa webhook endpoint | `https://emporiqa.com/webhooks/sync/` |
 | Batch Size | Products/pages per webhook request during bulk sync | 25 |
 
-In-chat cart operations are always enabled. No configuration needed.
+In-chat cart operations are always on; there is nothing to set up.
 
 ## AI disclosure
 
@@ -226,7 +228,7 @@ public function hookActionEmporiqaCustomerInfo(array $params)
 
 ## Pricing
 
-The module is paid on PrestaShop Addons and free on [GitHub](https://github.com/emporiqa/prestashop). The Emporiqa service itself is pay-as-you-go: $0.25 per conversation and $0.15 per AI-drafted email reply you send, with $25 of signup credit (about 100 conversations, once) and no card required at signup. You set a monthly limit on the billing page ($199 for new stores): a ceiling, not a charge, which you can raise, lower or clear. At the limit the chat is hidden from your shop and charging stops. No seat fees, and AI model costs are included. Voice mode (the shopper speaks and hears the answer read aloud) is optional and off by default: a conversation where the shopper speaks costs $0.15 more, charged once, and counts toward that limit. Prices exclude VAT. Enterprise option for catalogs over 100,000 products. Full pricing at [emporiqa.com/pricing/](https://emporiqa.com/pricing/).
+The module is paid on PrestaShop Addons and free on [GitHub](https://github.com/emporiqa/prestashop). Emporiqa is a paid service: every store starts with free credit, and no card is needed to sign up. Your team's inbox and every team member are included, with no seat fees. Pricing: [emporiqa.com/pricing/](https://emporiqa.com/pricing/?utm_source=prestashop&utm_medium=readme)
 
 ## Known issues
 
